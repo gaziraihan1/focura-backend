@@ -1,0 +1,609 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTHENTICATION & USER MANAGEMENT
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String?
+  emailVerified DateTime?
+  image         String?
+  lastProfileUpdateAt DateTime?
+  bio           String?
+  timezone      String?   @default("UTC")
+  role          UserRole  @default(USER)
+  plan UserPlan @default(FREE)
+
+  
+  // Preferences
+  theme         String?   @default("system")
+  notifications Boolean   @default(true)
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  accounts              Account[]
+  sessions              Session[]
+  ownedWorkspaces       Workspace[]         @relation("WorkspaceOwner")
+  workspaceMembers      WorkspaceMember[]
+  createdTasks          Task[]              @relation("TaskCreator")
+  assignedTasks         TaskAssignee[]
+  comments              Comment[]
+  files                 File[]
+  activities            Activity[]
+  notifications_sent    Notification[]      @relation("NotificationSender")
+  notifications_received Notification[]     @relation("NotificationReceiver")
+  focusSessions         FocusSession[]
+  timeEntries           TimeEntry[]
+  createdProjects       Project[]           @relation("ProjectCreator")
+  labels                Label[]
+  refresh_token         RefreshToken[]
+}
+enum UserPlan {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RefreshToken {
+  id             String   @id @default(cuid())
+  userId         String
+  tokenHash      String   @db.Text
+  revoked        Boolean  @default(false)
+  replacedById   String?  // id of the token that replaced this one
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([email, token])
+}
+
+// ============================================
+// WORKSPACE & TEAM MANAGEMENT
+// ============================================
+
+model Workspace {
+  id          String         @id @default(cuid())
+  name        String
+  slug        String         @unique
+  description String?
+  logo        String?
+  color       String?        @default("#667eea")
+  
+  // Settings
+  isPublic    Boolean        @default(false)
+  allowInvites Boolean       @default(true)
+  
+  // Billing
+  plan        WorkspacePlan  @default(FREE)
+  maxMembers  Int            @default(5)
+  maxStorage  Int            @default(1024) // MB
+  
+  // Timestamps
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  // Relations
+  ownerId     String
+  owner       User           @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  members     WorkspaceMember[]
+  projects    Project[]
+  labels      Label[]
+  files       File[]
+  activities  Activity[]
+  invitations WorkspaceInvitation[]
+
+  @@index([ownerId])
+  @@index([slug])
+}
+
+enum WorkspacePlan {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+model WorkspaceMember {
+  id          String         @id @default(cuid())
+  role        WorkspaceRole  @default(MEMBER)
+  joinedAt    DateTime       @default(now())
+  
+  // Relations
+  userId      String
+  workspaceId String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+  @@index([userId])
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+model WorkspaceInvitation {
+  id          String             @id @default(cuid())
+  email       String
+  role        WorkspaceRole      @default(MEMBER)
+  token       String             @unique
+  status      InvitationStatus   @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime           @default(now())
+  
+  // Relations
+  workspaceId String
+  invitedById String
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([email])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+// ============================================
+// PROJECT MANAGEMENT
+// ============================================
+
+model Project {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  color       String?        @default("#667eea")
+  icon        String?
+  
+  status      ProjectStatus  @default(ACTIVE)
+  priority    Priority       @default(MEDIUM)
+  
+  // Dates
+  startDate   DateTime?
+  dueDate     DateTime?
+  completedAt DateTime?
+  
+  // Timestamps
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  // Relations
+  workspaceId String
+  createdById String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User           @relation("ProjectCreator", fields: [createdById], references: [id])
+  
+  tasks       Task[]
+  files       File[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([status])
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+// ============================================
+// TASK MANAGEMENT
+// ============================================
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?      @db.Text
+  
+  status      TaskStatus   @default(TODO)
+  priority    Priority     @default(MEDIUM)
+  
+  // Dates
+  startDate   DateTime?
+  dueDate     DateTime?
+  completedAt DateTime?
+  
+  // Time tracking
+  estimatedHours Int?
+  actualHours    Float?
+  
+  // Position for ordering
+  position    Int          @default(0)
+  
+  // Timestamps
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  // Relations
+  projectId   String?
+  createdById String
+  parentId    String?      // For subtasks
+  
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation("TaskCreator", fields: [createdById], references: [id])
+  parent      Task?        @relation("Subtasks", fields: [parentId], references: [id])
+  subtasks    Task[]       @relation("Subtasks")
+  
+  assignees   TaskAssignee[]
+  labels      TaskLabel[]
+  comments    Comment[]
+  files       File[]
+  timeEntries TimeEntry[]
+  activities  Activity[]
+
+  @@index([projectId])
+  @@index([createdById])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  URGENT
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model TaskAssignee {
+  id         String   @id @default(cuid())
+  assignedAt DateTime @default(now())
+  
+  // Relations
+  taskId     String
+  userId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+}
+
+// ============================================
+// LABELS & TAGS
+// ============================================
+
+model Label {
+  id          String      @id @default(cuid())
+  name        String
+  color       String      @default("#667eea")
+  description String?
+  
+  // Relations
+  workspaceId String
+  createdById String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User        @relation(fields: [createdById], references: [id])
+  
+  tasks       TaskLabel[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+model TaskLabel {
+  id      String @id @default(cuid())
+  
+  // Relations
+  taskId  String
+  labelId String
+  task    Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, labelId])
+  @@index([taskId])
+  @@index([labelId])
+}
+
+// ============================================
+// COMMENTS & DISCUSSIONS
+// ============================================
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  edited    Boolean  @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  taskId    String
+  userId    String
+  parentId  String?  // For nested comments/replies
+  
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Comment? @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   Comment[] @relation("CommentReplies")
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+// ============================================
+// FILE MANAGEMENT
+// ============================================
+
+model File {
+  id          String    @id @default(cuid())
+  name        String
+  originalName String
+  size        Int       // bytes
+  mimeType    String
+  url         String
+  thumbnail   String?
+  
+  // File organization
+  folder      String?   @default("/")
+  
+  uploadedAt  DateTime  @default(now())
+  
+  // Relations
+  workspaceId String
+  uploadedById String
+  projectId   String?
+  taskId      String?
+  
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploadedBy  User      @relation(fields: [uploadedById], references: [id])
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([uploadedById])
+  @@index([projectId])
+  @@index([taskId])
+}
+
+// ============================================
+// FOCUS MODE & TIME TRACKING
+// ============================================
+
+model FocusSession {
+  id          String         @id @default(cuid())
+  duration    Int            // minutes
+  type        FocusType      @default(POMODORO)
+  completed   Boolean        @default(false)
+  
+  startedAt   DateTime       @default(now())
+  endedAt     DateTime?
+  
+  // Relations
+  userId      String
+  taskId      String?
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([startedAt])
+}
+
+enum FocusType {
+  POMODORO      // 25 min
+  SHORT_BREAK   // 5 min
+  LONG_BREAK    // 15 min
+  DEEP_WORK     // custom
+  CUSTOM
+}
+
+model TimeEntry {
+  id          String    @id @default(cuid())
+  description String?
+  duration    Int       // minutes
+  billable    Boolean   @default(false)
+  
+  startedAt   DateTime
+  endedAt     DateTime?
+  
+  // Relations
+  userId      String
+  taskId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([taskId])
+  @@index([startedAt])
+}
+
+// ============================================
+// ACTIVITY & AUDIT LOG
+// ============================================
+
+model Activity {
+  id          String       @id @default(cuid())
+  action      ActivityType
+  entityType  EntityType
+  entityId    String
+  metadata    Json?        // Store additional data
+  
+  createdAt   DateTime     @default(now())
+  
+  // Relations
+  userId      String
+  workspaceId String
+  taskId      String?
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task        Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+enum ActivityType {
+  CREATED
+  UPDATED
+  DELETED
+  COMPLETED
+  ASSIGNED
+  UNASSIGNED
+  COMMENTED
+  UPLOADED
+  MOVED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+}
+
+enum EntityType {
+  TASK
+  PROJECT
+  COMMENT
+  FILE
+  WORKSPACE
+  MEMBER
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id         String           @id @default(cuid())
+  type       NotificationType
+  title      String
+  message    String
+  read       Boolean          @default(false)
+  actionUrl  String?
+  
+  createdAt  DateTime         @default(now())
+  readAt     DateTime?
+  
+  // Relations
+  userId     String
+  senderId   String?
+  user       User             @relation("NotificationReceiver", fields: [userId], references: [id], onDelete: Cascade)
+  sender     User?            @relation("NotificationSender", fields: [senderId], references: [id])
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  MEMBER_JOINED
+  ROLE_UPDATED
+  TASK_COMPLETED
+  TASK_COMMENTED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  MENTION
+  WORKSPACE_INVITE
+  PROJECT_UPDATE
+  FILE_SHARED
+  DEADLINE_REMINDER
+}
+
+// ============================================
+// INTEGRATIONS (Future)
+// ============================================
+
+model Integration {
+  id          String   @id @default(cuid())
+  name        String
+  provider    String   // e.g., "github", "slack", "google-calendar"
+  accessToken String?  @db.Text
+  refreshToken String? @db.Text
+  config      Json?    // Integration-specific config
+  active      Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  workspaceId String
+
+  @@index([workspaceId])
+  @@index([provider])
+}
