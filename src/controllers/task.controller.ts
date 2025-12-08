@@ -22,13 +22,14 @@ const getTimeStatus = (task: any) => {
     hoursUntilDue = Math.floor(msUntilDue / (1000 * 60 * 60));
     
     // Check if overdue based on time spent vs estimated hours
-    if (task.estimatedHours) {
-      // If user has spent more hours than estimated, mark as overdue
-      isOverdue = hoursSinceCreation > task.estimatedHours;
-    } else {
-      // Fallback to date-based overdue
-      isOverdue = now > dueDate;
-    }
+    if (task.estimatedHours && task.actualHours) {
+  isOverdue = task.actualHours > task.estimatedHours;
+} else if (task.estimatedHours) {
+  isOverdue = hoursSinceCreation > task.estimatedHours;
+} else {
+  isOverdue = now > dueDate;
+}
+
     
     // Check if due today
     const todayStart = new Date(now);
@@ -93,8 +94,9 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
     }
 
     if (workspaceId) {
-      where.project = { workspaceId };
-    }
+  where.project = { ...where.project, workspaceId };
+}
+
 
     if (projectId) {
       where.projectId = projectId;
@@ -275,7 +277,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       title,
       description,
       projectId,
-      workspaceId,
       status,
       priority,
       dueDate,
@@ -292,6 +293,9 @@ export const createTask = async (req: AuthRequest, res: Response) => {
         message: 'Task title is required',
       });
     }
+
+    // Determine workspaceId based on projectId
+    let finalWorkspaceId: string | null = null;
 
     if (projectId) {
       const project = await prisma.project.findFirst({
@@ -312,63 +316,103 @@ export const createTask = async (req: AuthRequest, res: Response) => {
           message: 'You do not have access to this project',
         });
       }
+
+      finalWorkspaceId = project.workspaceId;
+    }
+
+    // Build the data object using Prisma relations
+    const taskData: any = {
+      title,
+      description,
+      status: status || "TODO",
+      priority: priority || "MEDIUM",
+      dueDate: dueDate ? new Date(dueDate) : null,
+      startDate: startDate ? new Date(startDate) : null,
+      estimatedHours,
+      createdBy: {
+        connect: {
+          id: req.user!.id,
+        },
+      },
+    };
+
+    // Connect to project if provided (using relation, not projectId)
+    if (projectId) {
+      taskData.project = {
+        connect: { id: projectId }
+      };
+    }
+
+    // Connect to workspace if it exists (using relation, not workspaceId)
+    if (finalWorkspaceId) {
+      taskData.workspace = {
+        connect: { id: finalWorkspaceId }
+      };
+    }
+
+    // Connect to parent task if provided
+    if (parentId) {
+      taskData.parent = {
+        connect: { id: parentId }
+      };
+    }
+
+    // Add assignees if provided
+    if (assigneeIds && assigneeIds.length > 0) {
+      taskData.assignees = {
+        create: assigneeIds.map((userId: string) => ({ userId })),
+      };
+    }
+
+    // Add labels if provided
+    if (labelIds && labelIds.length > 0) {
+      taskData.labels = {
+        create: labelIds.map((labelId: string) => ({ labelId })),
+      };
     }
 
     const task = await prisma.task.create({
-      data: {
-        title,
-        description,
-        projectId: projectId || null,
-        status: status || 'TODO',
-        priority: priority || 'MEDIUM',
-        dueDate: dueDate ? new Date(dueDate) : null,
-        startDate: startDate ? new Date(startDate) : null,
-        estimatedHours,
-        createdById: req.user!.id,
-        parentId,
-        assignees: assigneeIds
-          ? {
-              create: assigneeIds.map((userId: string) => ({
-                userId,
-              })),
-            }
-          : undefined,
-        labels: labelIds
-          ? {
-              create: labelIds.map((labelId: string) => ({
-                labelId,
-              })),
-            }
-          : undefined,
-      },
+      data: taskData,
       include: {
         createdBy: {
           select: { id: true, name: true, email: true, image: true },
         },
         assignees: {
           include: {
-            user: {
-              select: { id: true, name: true, email: true, image: true },
-            },
+            user: { select: { id: true, name: true, email: true, image: true } },
           },
         },
-        labels: {
-          include: { label: true },
+        labels: { include: { label: true } },
+        project: { 
+          select: { 
+            id: true, 
+            name: true, 
+            color: true, 
+            workspaceId: true,
+            workspace: {
+              select: { id: true, name: true }
+            }
+          } 
         },
-        project: {
-          select: { id: true, name: true, color: true, workspaceId: true },
+        _count: {
+          select: {
+            comments: true,
+            subtasks: true,
+            files: true,
+          },
         },
       },
     });
 
-    if (task.projectId && task.project) {
+    // Only create activity if it's a workspace task
+    if (finalWorkspaceId) {
       await prisma.activity.create({
         data: {
           action: 'CREATED',
           entityType: 'TASK',
           entityId: task.id,
           userId: req.user!.id,
-          workspaceId: task.project.workspaceId,
+          workspaceId: finalWorkspaceId,
           taskId: task.id,
           metadata: {
             taskTitle: task.title,
@@ -377,6 +421,7 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // Send notifications to assignees
     if (assigneeIds && assigneeIds.length > 0) {
       for (const userId of assigneeIds) {
         if (userId !== req.user!.id) {
@@ -412,6 +457,7 @@ export const createTask = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create task',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 };
