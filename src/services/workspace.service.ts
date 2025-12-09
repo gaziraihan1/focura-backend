@@ -3,23 +3,24 @@ import { PrismaClient, WorkspaceRole } from '@prisma/client';
 import crypto from 'crypto';
 import { sendInvitationEmail } from '../utils/email.js';
 import { notifyUser } from '../utils/notification.helpers.js';
-import slugify from 'slugify';
+import * as slugifyModule from "slugify";
+const slugify = (slugifyModule as any).default || slugifyModule;
 
 const prisma = new PrismaClient();
 
 export class WorkspaceService {
   
   static async generateSlug(name: string): Promise<string> {
-    let slug = slugify(name, { lower: true, strict: true });
-    let counter = 1;
-    
-    while (await prisma.workspace.findUnique({ where: { slug } })) {
-      slug = `${slugify(name, { lower: true, strict: true })}-${counter}`;
-      counter++;
-    }
-    
-    return slug;
+  let slug = slugify(name, { lower: true, strict: true });
+  let counter = 1;
+
+  while (await prisma.workspace.findUnique({ where: { slug } })) {
+    slug = `${slugify(name, { lower: true, strict: true })}-${counter}`;
+    counter++;
   }
+
+  return slug;
+}
   
   // Get all user workspaces
   static async getUserWorkspaces(userId: string) {
