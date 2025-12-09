@@ -30,12 +30,22 @@ export const prisma = new PrismaClient({
 const app: Application = express();
 const PORT = process.env.PORT || 5000;
 
-console.log('⚡ CORS client origin:', process.env.CLIENT_URL);
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://focura-client.vercel.app',
+];
 
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3001',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS not allowed from origin ${origin}`));
+    }
+  },
   credentials: true,
 }));
+
 
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
