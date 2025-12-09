@@ -2,9 +2,8 @@
 import { PrismaClient, WorkspaceRole } from '@prisma/client';
 import crypto from 'crypto';
 import { sendInvitationEmail } from '../utils/email.js';
-import slugify from 'slugify';
 import { notifyUser } from '../utils/notification.helpers.js';
-import { Request, Response } from 'express';
+import slugify from 'slugify';
 
 const prisma = new PrismaClient();
 
@@ -394,7 +393,7 @@ export class WorkspaceService {
     select: { id: true, notifications: true },
   });
   
-  if (invitedUser && invitedUser.notifications) {
+  if (invitedUser && invitedUser.notifications && invitation.workspace) {
     await notifyUser({
       userId: invitedUser.id,
       senderId: inviterId,
@@ -461,7 +460,7 @@ export class WorkspaceService {
       select: { notifications: true },
     });
     
-    if (inviter?.notifications) {
+    if (inviter?.notifications && invitation.workspace) {
       await notifyUser({
         userId: invitation.invitedById,
         senderId: userId,
@@ -490,7 +489,7 @@ export class WorkspaceService {
   });
   
   for (const admin of admins) {
-    if (admin.user.notifications) {
+    if (admin.user.notifications && invitation.workspace) {
       await notifyUser({
         userId: admin.userId,
         senderId: userId,
@@ -570,7 +569,7 @@ static async removeMember(
     });
     
     // 🔔 Notify the removed member
-    if (member.user.notifications) {
+    if (member.user.notifications && member.workspace) {
       await notifyUser({
         userId: member.userId,
         senderId: removerId,
@@ -624,7 +623,7 @@ static async updateMemberRole(
   });
   
   // 🔔 Notify the member about role change
-  if (member.user.notifications) {
+  if (member.user.notifications && updater.workspace) {
     await notifyUser({
       userId: member.userId,
       senderId: updaterId,

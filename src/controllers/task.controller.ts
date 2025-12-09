@@ -715,7 +715,7 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    if (existingTask.project) {
+    if (existingTask.project && existingTask.project.workspaceId) {
       await prisma.activity.create({
         data: {
           action: 'UPDATED',

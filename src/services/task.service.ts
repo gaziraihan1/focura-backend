@@ -172,7 +172,7 @@ export const TaskService = {
         select: { workspaceId: true },
       });
 
-      if (project) {
+      if (project && project.workspaceId) {
         await notifyMentions({
           text: params.content,
           workspaceId: project.workspaceId,

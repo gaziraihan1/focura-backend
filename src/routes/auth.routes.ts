@@ -15,11 +15,18 @@ router.post("/login", async (req: Request, res: Response) => {
       select: { id: true, email: true, password: true, role: true, name: true },
     });
 
-    if (!user || !(await argon2.verify(user.password, password))) {
+    // Check if user exists and has a password (not OAuth user)
+    if (!user || !user.password) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    const token = createBackendToken({ id: user.id, role: user.role });
+    // Now TypeScript knows user.password is definitely a string
+    const isValid = await argon2.verify(user.password, password);
+    if (!isValid) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const token = createBackendToken({ id: user.id, email: user.email, role: user.role });
 
     res.cookie("backendToken", token, {
       httpOnly: true,
@@ -39,6 +46,7 @@ router.post("/login", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 router.post('/logout', (req: Request, res: Response) => {
   const isProd = process.env.NODE_ENV === "production";
   const BACKEND_COOKIE_NAME = isProd ? "__Secure-focura.backend" : "focura.backend";
