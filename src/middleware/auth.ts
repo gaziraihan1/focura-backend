@@ -42,15 +42,6 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       });
     }
     
-    // console.log('🔍 Auth Debug:', {
-    //   cookieName: BACKEND_COOKIE_NAME,
-    //   hasCookieParser: !!req.cookies,
-    //   parsedCookies: req.cookies,
-    //   rawCookieHeader: req.headers.cookie?.substring(0, 100) + '...',
-    //   tokenFound: !!backendToken,
-    //   environment: process.env.NODE_ENV
-    // });
-
     if (!backendToken) {
       return res.status(401).json({ 
         success: false, 
