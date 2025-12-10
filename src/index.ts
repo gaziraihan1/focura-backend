@@ -3,7 +3,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import helmet from 'helmet';
-import cookieParser from 'cookie-parser';
 
 import { initNotificationCrons } from "./cron/notification.cron.js";
 
@@ -31,17 +30,17 @@ const app: Application = express();
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// 🔥 IMPROVED: Better CORS configuration with multiple origins
+// ✅ Better CORS configuration with multiple origins
 const allowedOrigins = [
   process.env.CLIENT_URL,
   'http://localhost:3000',
   'http://localhost:3001',
-  process.env.FRONTEND_URL, // Add your Vercel URL here
-].filter(Boolean); // Remove undefined values
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin)) {
@@ -51,20 +50,20 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true,
+  credentials: true, // Still needed for NextAuth cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-  exposedHeaders: ['Set-Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization'], // Removed 'Cookie' - not needed
+  exposedHeaders: [], // Removed 'Set-Cookie' - not needed
 }));
 
-// 🔥 IMPROVED: Handle preflight requests explicitly
+// Handle preflight requests explicitly
 app.options('*', cors());
 
-app.use(cookieParser());
+// ❌ REMOVED: cookieParser() - not needed for Authorization header auth
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 🔥 IMPROVED: Better helmet configuration for production
+// Better helmet configuration for production
 app.use(helmet({
   contentSecurityPolicy: isProd ? {
     directives: {
@@ -74,17 +73,17 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", ...(allowedOrigins as string[])],
     },
-  } : false, // Disable CSP in development
+  } : false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
-// 🔥 IMPROVED: Request logging middleware
+// Request logging middleware
 app.use((req: Request, res: Response, next) => {
   if (process.env.NODE_ENV === 'development') {
     console.log(`${req.method} ${req.path}`, {
       origin: req.headers.origin,
-      cookies: Object.keys(req.cookies),
       hasAuth: !!req.headers.authorization,
+      authType: req.headers.authorization?.split(' ')[0] || 'none',
     });
   }
   next();
@@ -92,10 +91,9 @@ app.use((req: Request, res: Response, next) => {
 
 initNotificationCrons();
 
-// 🔥 IMPROVED: Better health check with database connection
+// Better health check with database connection
 app.get('/health', async (req: Request, res: Response) => {
   try {
-    // Check database connection
     await prisma.$queryRaw`SELECT 1`;
     
     res.json({
@@ -104,6 +102,7 @@ app.get('/health', async (req: Request, res: Response) => {
       uptime: process.uptime(),
       environment: process.env.NODE_ENV,
       database: 'connected',
+      authMethod: 'Authorization Header',
     });
   } catch (error) {
     res.status(503).json({
@@ -117,30 +116,29 @@ app.get('/health', async (req: Request, res: Response) => {
   }
 });
 
-// 🔥 IMPROVED: Better debug endpoint with security
-app.get('/api/debug/cookies', (req: Request, res: Response) => {
-  // Only allow in development
+// ✅ NEW: Debug endpoint for Authorization header
+app.get('/api/debug/auth', (req: Request, res: Response) => {
   if (isProd) {
     return res.status(403).json({ error: 'Debug endpoint disabled in production' });
   }
   
-  const cookieName = isProd ? "__Secure-focura.backend" : "focura.backend";
+  const authHeader = req.headers.authorization;
+  const hasBearer = authHeader?.startsWith('Bearer ');
   
   res.json({
     environment: process.env.NODE_ENV,
-    expectedCookieName: cookieName,
-    parsedCookies: req.cookies,
-    rawCookieHeader: req.headers.cookie,
-    cookieFound: !!req.cookies[cookieName],
+    hasAuthHeader: !!authHeader,
+    authType: authHeader?.split(' ')[0] || 'none',
+    tokenLength: hasBearer ? authHeader?.substring(7).length : 0,
     origin: req.headers.origin,
-    referer: req.headers.referer,
+    method: req.method,
   });
 });
 
-// 🔥 IMPROVED: Auth routes without authentication
+// Auth routes without authentication
 app.use('/api/auth', authRoutes);
 
-// 🔥 IMPROVED: Protected routes with authentication
+// Protected routes with authentication
 app.use('/api/workspaces', authenticate, workspaceRoutes);
 app.use('/api/projects', authenticate, projectRoutes);
 app.use('/api/tasks', authenticate, taskRoutes);  
@@ -149,9 +147,9 @@ app.use('/api/activities', authenticate, activityRoutes);
 app.use('/api/user', authenticate, userRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
 app.use('/api/labels', authenticate, labelRoutes);
-app.use('/api/notifications', authenticate, notificationRoutes); // 🔥 Added auth
+app.use('/api/notifications', authenticate, notificationRoutes);
 
-// 🔥 IMPROVED: Better 404 handler
+// 404 handler
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);
   res.status(404).json({
@@ -162,18 +160,18 @@ app.use((req: Request, res: Response) => {
   });
 });
 
-// 🔥 IMPROVED: Error handler must be last
+// Error handler must be last
 app.use(errorHandler);
 
-// 🔥 IMPROVED: Better server startup with error handling
+// Server startup with error handling
 const server = app.listen(PORT, () => {
-  console.log('='.repeat(50));
+  console.log('='.repeat(60));
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV}`);
   console.log(`🌐 Allowed Origins:`, allowedOrigins);
   console.log(`🔒 HTTPS Required: ${isProd}`);
-  console.log(`🍪 Cookie Name: ${isProd ? "__Secure-focura.backend" : "focura.backend"}`);
-  console.log('='.repeat(50));
+  console.log(`🔑 Auth Method: Authorization Header (Bearer Token)`);
+  console.log('='.repeat(60));
 }).on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
     console.error(`❌ Port ${PORT} is already in use`);
@@ -183,20 +181,16 @@ const server = app.listen(PORT, () => {
   process.exit(1);
 });
 
-// 🔥 IMPROVED: Better graceful shutdown with timeout
+// Graceful shutdown with timeout
 const gracefulShutdown = async (signal: string) => {
-  console.log(`
-${signal} received, shutting down gracefully...`);
+  console.log(`\n${signal} received, shutting down gracefully...`);
   
-  // Stop accepting new connections
   server.close(async () => {
     console.log('✅ HTTP server closed');
     
     try {
-      // Disconnect Prisma
       await prisma.$disconnect();
       console.log('✅ Database disconnected');
-      
       console.log('✅ Graceful shutdown complete');
       process.exit(0);
     } catch (error) {
@@ -215,7 +209,7 @@ ${signal} received, shutting down gracefully...`);
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// 🔥 IMPROVED: Handle uncaught errors
+// Handle uncaught errors
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
   gracefulShutdown('UNCAUGHT_EXCEPTION');

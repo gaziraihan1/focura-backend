@@ -79,57 +79,7 @@ router.post("/login", async (req: Request, res: Response) => {
   }
 });
 
-// Set cookie endpoint for OAuth flow
-router.post("/set-cookie", async (req: Request, res: Response) => {
-  try {
-    const { token } = req.body;
-    
-    console.log("🔵 Received set-cookie request");
-    console.log("🔵 Has token:", !!token);
-    
-    if (!token) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "Token required" 
-      });
-    }
 
-    // Verify the token is valid
-    try {
-      const decoded = jwt.verify(token, process.env.BACKEND_JWT_SECRET!);
-      console.log("✅ Token verified for user:", decoded.sub);
-    } catch (err) {
-      console.error("❌ Invalid token:", err);
-      return res.status(401).json({ 
-        success: false, 
-        error: "Invalid token" 
-      });
-    }
-
-    // Set cookie
-    res.cookie(BACKEND_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
-      path: "/",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    console.log("✅ Cookie set:", BACKEND_COOKIE_NAME);
-
-    res.json({ 
-      success: true, 
-      message: "Cookie set successfully",
-      cookieName: BACKEND_COOKIE_NAME
-    });
-  } catch (error) {
-    console.error("❌ Set cookie error:", error);
-    res.status(500).json({ 
-      success: false, 
-      error: "Failed to set cookie" 
-    });
-  }
-});
 
 router.post('/logout', (req: Request, res: Response) => {
   res.clearCookie(BACKEND_COOKIE_NAME, {
