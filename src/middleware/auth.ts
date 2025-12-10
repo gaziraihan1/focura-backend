@@ -1,6 +1,6 @@
 // middleware/auth.ts
 import { Request, Response, NextFunction } from "express";
-import jwt, { JwtPayload, TokenExpiredError, JsonWebTokenError } from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import { prisma } from "../index.js";
 
 export interface AuthRequest extends Request {
@@ -12,6 +12,7 @@ export interface AuthRequest extends Request {
   };
 }
 
+const {TokenExpiredError, JsonWebTokenError} = jwt
 export const authenticate = async (
   req: AuthRequest, 
   res: Response, 
