@@ -26,12 +26,12 @@ export function notificationStream(req: Request, res: Response) {
   try {
     const decoded = jwt.verify(token, process.env.BACKEND_JWT_SECRET!);
 
-    if (!decoded || (decoded as any).id !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: "Invalid token for this user",
-      });
-    }
+    const decodedUserId = (decoded as any).sub;
+
+if (!decodedUserId || decodedUserId !== userId) {
+  return res.status(403).json({ success: false, message: "Invalid token for this user" });
+}
+
   } catch (error) {
     return res.status(401).json({
       success: false,
