@@ -12,7 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "postinstall": "prisma generate",
-     "deploy": "npm run build && prisma migrate deploy && npm start"
+    "deploy": "npm run build && prisma migrate deploy && npm start"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
