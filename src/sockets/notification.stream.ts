@@ -1,10 +1,12 @@
 // sockets/notification.stream.ts
 import { Request, Response } from "express";
+import jwt from "jsonwebtoken";
 
 const clients = new Map<string, Response>();
 
 export function notificationStream(req: Request, res: Response) {
   const userId = req.params.userId;
+  const token = req.query.token as string;
 
   if (!userId) {
     return res.status(400).json({
@@ -13,61 +15,95 @@ export function notificationStream(req: Request, res: Response) {
     });
   }
 
-  // SSE Headers
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: "Missing token",
+    });
+  }
+
+  // 🔐 Validate Token
+  try {
+    const decoded = jwt.verify(token, process.env.BACKEND_JWT_SECRET!);
+
+    if (!decoded || (decoded as any).id !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "Invalid token for this user",
+      });
+    }
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired token",
+    });
+  }
+
+  // SSE headers (no cookies needed)
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", process.env.FRONTEND_URL || "http://localhost:3000");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  
-  // Disable compression for SSE
-  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    process.env.CLIENT_URL || "http://localhost:3000"
+  );
+  res.setHeader("Access-Control-Allow-Methods", "GET");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("X-Accel-Buffering", "no"); // Disable buffering (NGINX)
 
   // Send initial connection message
-  res.write(`data: ${JSON.stringify({ type: "connected", message: "SSE connected" })}\n\n`);
+  res.write(
+    `data: ${JSON.stringify({
+      type: "connected",
+      message: "SSE connected",
+    })}\n\n`
+  );
 
-  // Store client connection
+  // Store connection
   clients.set(userId, res);
-  console.log(`✅ SSE: User ${userId} connected. Total connections: ${clients.size}`);
+  console.log(
+    `✅ SSE: User ${userId} connected. Total connections: ${clients.size}`
+  );
 
-  // Heartbeat to keep connection alive (every 30 seconds)
+  // Keep-alive ping
   const heartbeat = setInterval(() => {
-    res.write(`:heartbeat\n\n`);
+    res.write(`: ping\n\n`);
   }, 30000);
 
-  // Handle client disconnect
+  // Handle disconnect
   req.on("close", () => {
     clearInterval(heartbeat);
     clients.delete(userId);
-    console.log(`❌ SSE: User ${userId} disconnected. Total connections: ${clients.size}`);
+    console.log(
+      `❌ SSE: User ${userId} disconnected. Total connections: ${clients.size}`
+    );
   });
 }
 
+// Send notification to single user
 export function sendNotificationToUser(userId: string, notification: any) {
   const client = clients.get(userId);
-  
+
   if (!client) {
-    console.log(`⚠️ SSE: No active connection for user ${userId}`);
+    console.log(`⚠️ No active SSE connection for user ${userId}`);
     return false;
   }
 
   try {
     client.write(`data: ${JSON.stringify(notification)}\n\n`);
-    console.log(`📤 SSE: Sent notification to user ${userId}`);
+    console.log(`📤 Sent notification → user ${userId}`);
     return true;
-  } catch (error) {
-    console.error(`❌ SSE: Failed to send to user ${userId}:`, error);
+  } catch (err) {
+    console.error(`❌ Failed to send SSE to user ${userId}:`, err);
     clients.delete(userId);
     return false;
   }
 }
 
-// Get active connections count
-export function getActiveConnections(): number {
+export function getActiveConnections() {
   return clients.size;
 }
 
-// Get all connected user IDs
-export function getConnectedUsers(): string[] {
+export function getConnectedUsers() {
   return Array.from(clients.keys());
 }
