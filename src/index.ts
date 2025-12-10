@@ -50,18 +50,16 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true, // Still needed for NextAuth cookies
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'], // Removed 'Cookie' - not needed
-  exposedHeaders: [], // Removed 'Set-Cookie' - not needed
+  allowedHeaders: ['Content-Type', 'Authorization'], 
+  exposedHeaders: [], 
 }));
 
 
-// ❌ REMOVED: cookieParser() - not needed for Authorization header auth
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Better helmet configuration for production
 app.use(helmet({
   contentSecurityPolicy: isProd ? {
     directives: {
@@ -75,7 +73,6 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
-// Request logging middleware
 app.use((req: Request, res: Response, next) => {
   if (process.env.NODE_ENV === 'development') {
     console.log(`${req.method} ${req.path}`, {
@@ -89,7 +86,6 @@ app.use((req: Request, res: Response, next) => {
 
 initNotificationCrons();
 
-// Better health check with database connection
 app.get('/health', async (req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -114,7 +110,6 @@ app.get('/health', async (req: Request, res: Response) => {
   }
 });
 
-// ✅ NEW: Debug endpoint for Authorization header
 app.get('/api/debug/auth', (req: Request, res: Response) => {
   if (isProd) {
     return res.status(403).json({ error: 'Debug endpoint disabled in production' });
@@ -133,10 +128,8 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
   });
 });
 
-// Auth routes without authentication
 app.use('/api/auth', authRoutes);
 
-// Protected routes with authentication
 app.use('/api/workspaces', authenticate, workspaceRoutes);
 app.use('/api/projects', authenticate, projectRoutes);
 app.use('/api/tasks', authenticate, taskRoutes);  
@@ -147,7 +140,6 @@ app.use('/api/upload', authenticate, uploadRoutes);
 app.use('/api/labels', authenticate, labelRoutes);
 app.use('/api/notifications', authenticate, notificationRoutes);
 
-// 404 handler
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);
   res.status(404).json({
@@ -158,10 +150,8 @@ app.use((req: Request, res: Response) => {
   });
 });
 
-// Error handler must be last
 app.use(errorHandler);
 
-// Server startup with error handling
 const server = app.listen(PORT, () => {
   console.log('='.repeat(60));
   console.log(`🚀 Server running on port ${PORT}`);
@@ -179,7 +169,6 @@ const server = app.listen(PORT, () => {
   process.exit(1);
 });
 
-// Graceful shutdown with timeout
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n${signal} received, shutting down gracefully...`);
   
@@ -197,7 +186,6 @@ const gracefulShutdown = async (signal: string) => {
     }
   });
   
-  // Force shutdown after 30 seconds
   setTimeout(() => {
     console.error('⚠️  Forcing shutdown after timeout');
     process.exit(1);
@@ -207,7 +195,6 @@ const gracefulShutdown = async (signal: string) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Handle uncaught errors
 process.on('uncaughtException', (error) => {
   console.error('❌ Uncaught Exception:', error);
   gracefulShutdown('UNCAUGHT_EXCEPTION');

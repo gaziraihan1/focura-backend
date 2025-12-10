@@ -58,7 +58,7 @@ export const authenticate = async (
     // Verify JWT with additional options for security
     const decoded = jwt.verify(token, process.env.BACKEND_JWT_SECRET, {
       algorithms: ['HS256'], // Explicitly specify allowed algorithm
-      issuer: 'focura-backend', // Match what you set when creating token
+      issuer: 'focura-app', // Match what you set when creating token
     }) as JwtPayload;
 
     // Validate decoded token has required fields
