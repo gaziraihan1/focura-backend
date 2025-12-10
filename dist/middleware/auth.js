@@ -1,5 +1,6 @@
-import jwt, { TokenExpiredError, JsonWebTokenError } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import { prisma } from "../index.js";
+const { TokenExpiredError, JsonWebTokenError } = jwt;
 export const authenticate = async (req, res, next) => {
     try {
         // Get token from Authorization header
