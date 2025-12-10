@@ -56,8 +56,6 @@ app.use(cors({
   exposedHeaders: [], // Removed 'Set-Cookie' - not needed
 }));
 
-// Handle preflight requests explicitly
-app.options('/*', cors());
 
 // ❌ REMOVED: cookieParser() - not needed for Authorization header auth
 app.use(express.json({ limit: '10mb' }));
