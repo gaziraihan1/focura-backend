@@ -43,12 +43,6 @@ export function notificationStream(req: Request, res: Response) {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader(
-    "Access-Control-Allow-Origin",
-    process.env.CLIENT_URL || "http://localhost:3000"
-  );
-  res.setHeader("Access-Control-Allow-Methods", "GET");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("X-Accel-Buffering", "no"); // Disable buffering (NGINX)
 
   // Send initial connection message
