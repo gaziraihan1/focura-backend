@@ -12,131 +12,123 @@ export interface AuthRequest extends Request {
   };
 }
 
-const {TokenExpiredError, JsonWebTokenError} = jwt
+const { TokenExpiredError, JsonWebTokenError } = jwt;
+
 export const authenticate = async (
-  req: AuthRequest, 
-  res: Response, 
+  req: AuthRequest,
+  res: Response,
   next: NextFunction
 ) => {
   try {
-    // Get token from Authorization header
+    let token: string | undefined;
+
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader?.startsWith("Bearer ")) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log("⚠️  No Authorization header found");
+    if (authHeader?.startsWith("Bearer ")) {
+      token = authHeader.substring(7);
+      if (process.env.NODE_ENV === "development") {
+        console.log("🔵 Token extracted from Authorization header");
       }
-      return res.status(401).json({ 
-        success: false, 
-        message: "Authentication required"
+    }
+
+    if (!token && req.query.token) {
+      token = String(req.query.token);
+      if (process.env.NODE_ENV === "development") {
+        console.log("🟢 Token extracted from query parameter");
+      }
+    }
+
+    // No token → reject
+    if (!token || token.trim() === "") {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
       });
     }
 
-    const token = authHeader.substring(7); // Remove "Bearer " prefix
-
-    // Validate token is not empty
-    if (!token || token.trim() === '') {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Invalid token format"
-      });
-    }
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log("🔵 Authenticating token from Authorization header");
-    }
-
-    // Verify JWT secret is configured
+    // Check secret
     if (!process.env.BACKEND_JWT_SECRET) {
       console.error("❌ BACKEND_JWT_SECRET is not configured!");
-      return res.status(500).json({ 
-        success: false, 
-        message: "Server configuration error"
+      return res.status(500).json({
+        success: false,
+        message: "Server configuration error",
       });
     }
 
-    // Verify JWT with additional options for security
+    // Verify token
     const decoded = jwt.verify(token, process.env.BACKEND_JWT_SECRET, {
-      algorithms: ['HS256'], // Explicitly specify allowed algorithm
-      issuer: 'focura-app', // Match what you set when creating token
+      algorithms: ["HS256"],
+      issuer: "focura-app",
     }) as JwtPayload;
 
-    // Validate decoded token has required fields
     if (!decoded.sub) {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Invalid token payload"
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token payload",
       });
     }
 
-    // Fetch user from database
+    // Fetch user
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },
-      select: { 
-        id: true, 
-        email: true, 
-        name: true, 
+      select: {
+        id: true,
+        email: true,
+        name: true,
         role: true,
-        emailVerified: true, // Check if email is verified
-      }
+        emailVerified: true,
+      },
     });
 
     if (!user) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log("❌ User not found for ID:", decoded.sub);
-      }
-      return res.status(401).json({ 
-        success: false, 
-        message: "User not found"
+      return res.status(401).json({
+        success: false,
+        message: "User not found",
       });
     }
 
-   
     if (!user.emailVerified) {
-      return res.status(403).json({ 
-        success: false, 
-        message: "Please verify your email"
+      return res.status(403).json({
+        success: false,
+        message: "Please verify your email",
       });
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log("✅ User authenticated:", user.email);
-    }
-
-    // Remove emailVerified from user object before attaching to request
+    // Attach user
     const { emailVerified, ...userWithoutEmailVerified } = user;
     req.user = userWithoutEmailVerified;
-    next();
 
+    next();
   } catch (err) {
-    // Handle specific JWT errors
     if (err instanceof TokenExpiredError) {
-      console.error('🔴 Token expired:', err.expiredAt);
-      return res.status(401).json({ 
-        success: false, 
+      console.error("🔴 Token expired:", err.expiredAt);
+      return res.status(401).json({
+        success: false,
         message: "Token has expired. Please login again.",
-        code: 'TOKEN_EXPIRED'
+        code: "TOKEN_EXPIRED",
       });
     }
 
     if (err instanceof JsonWebTokenError) {
-      console.error('🔴 Invalid token:', err.message);
-      return res.status(401).json({ 
-        success: false, 
+      console.error("🔴 Invalid token:", err.message);
+      return res.status(401).json({
+        success: false,
         message: "Invalid token",
-        code: 'INVALID_TOKEN'
+        code: "INVALID_TOKEN",
       });
     }
 
-    // Handle other errors
-    console.error('🔴 Authentication error:', err);
-    return res.status(401).json({ 
-      success: false, 
+    console.error("🔴 Authentication error:", err);
+    return res.status(401).json({
+      success: false,
       message: "Authentication failed",
-      error: process.env.NODE_ENV === 'development' ? (err as Error).message : undefined
+      error:
+        process.env.NODE_ENV === "development"
+          ? (err as Error).message
+          : undefined,
     });
   }
 };
+
 
 export const authorize = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
