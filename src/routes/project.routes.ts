@@ -1,27 +1,28 @@
+// routes/project.routes.ts
 import { Router } from 'express';
-import { 
-  getAllProjects, 
+import {
+  getProjectDetails,
   getProjectsByWorkspace,
   createProject,
   updateProject,
   deleteProject,
+  addProjectMember,
+  updateProjectMemberRole,
+  removeProjectMember,
 } from '../controllers/project.controller.js';
 
 const router = Router();
 
-// Get all projects accessible by the logged-in user
-router.get('/', getAllProjects);
+// Project CRUD - IMPORTANT: Specific routes MUST come before parameterized routes
+router.post('/', createProject);                                           // Create project
+router.get('/workspace/:workspaceId', getProjectsByWorkspace);             // Get workspace projects (specific route)
+router.get('/:projectId', getProjectDetails);                              // Get project details (parameterized route)
+router.patch('/:projectId', updateProject);                                // Update project
+router.delete('/:projectId', deleteProject);                               // Delete project
 
-// Get projects under a specific workspace
-router.get('/:workspaceId', getProjectsByWorkspace);
-
-// Create a new project
-router.post('/', createProject);
-
-// Update a project
-router.patch('/:projectId', updateProject);
-
-// Delete a project
-router.delete('/:projectId', deleteProject);
+// Project Members
+router.post('/:projectId/members', addProjectMember);                      // Add member
+router.patch('/:projectId/members/:memberId', updateProjectMemberRole);    // Update member role
+router.delete('/:projectId/members/:memberId', removeProjectMember);       // Remove member
 
 export default router;
