@@ -170,53 +170,100 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// Replace the getTaskStats function in your task.controller.ts
+
 export const getTaskStats = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
-    const now = new Date();
-console.log('📋 GET /api/tasks called');
+    const { workspaceId } = req.query; // Get workspaceId from query params
+    
+    console.log('📊 GET /api/tasks/stats called');
     console.log('  User:', req.user?.email);
+    console.log('  WorkspaceId:', workspaceId);
     console.log('  Query params:', req.query);
+
+    // Build base where clause
+    let baseWhere: any = {
+      OR: [
+        { createdById: userId },
+        { assignees: { some: { userId } } },
+      ],
+    };
+
+    // If workspaceId provided, filter by workspace
+    if (workspaceId && typeof workspaceId === 'string') {
+      baseWhere = {
+        ...baseWhere,
+        project: {
+          workspaceId: workspaceId,
+        },
+      };
+    }
+
+    // Personal tasks (no project) - exclude when filtering by workspace
     const personalCount = await prisma.task.count({
       where: {
         projectId: null,
         createdById: userId,
+        ...(workspaceId && { workspaceId: null }), // Exclude when filtering workspace
       },
     });
 
+    // Assigned tasks
     const assignedCount = await prisma.task.count({
       where: {
         assignees: {
           some: { userId },
         },
+        ...(workspaceId && {
+          project: {
+            workspaceId: workspaceId as string,
+          },
+        }),
       },
     });
 
+    // Total tasks with filter
+    const totalTasks = await prisma.task.count({
+      where: baseWhere,
+    });
+
+    // In Progress count
+    const inProgress = await prisma.task.count({
+      where: {
+        ...baseWhere,
+        status: 'IN_PROGRESS',
+      },
+    });
+
+    // Completed count
+    const completed = await prisma.task.count({
+      where: {
+        ...baseWhere,
+        status: 'COMPLETED',
+      },
+    });
+
+    // Status counts
     const statusCounts = await prisma.task.groupBy({
       by: ['status'],
-      where: {
-        OR: [
-          { createdById: userId },
-          { assignees: { some: { userId } } },
-        ],
-      },
+      where: baseWhere,
       _count: true,
     });
 
     // Get all tasks to calculate smart overdue based on estimated hours
     const allUserTasks = await prisma.task.findMany({
       where: {
+        ...baseWhere,
         status: { notIn: ['COMPLETED', 'CANCELLED'] },
-        OR: [
-          { createdById: userId },
-          { assignees: { some: { userId } } },
-        ],
       },
       select: {
         id: true,
         createdAt: true,
         dueDate: true,
         estimatedHours: true,
+        status: true,
+        actualHours: true,
       },
     });
 
@@ -237,30 +284,34 @@ console.log('📋 GET /api/tasks called');
 
     const dueTodayCount = await prisma.task.count({
       where: {
+        ...baseWhere,
         dueDate: {
           gte: today,
           lt: tomorrow,
         },
         status: { notIn: ['COMPLETED', 'CANCELLED'] },
-        OR: [
-          { createdById: userId },
-          { assignees: { some: { userId } } },
-        ],
       },
     });
 
+    const stats = {
+      personal: workspaceId ? 0 : personalCount, // Hide personal when filtering workspace
+      assigned: assignedCount,
+      overdue: overdueCount,
+      dueToday: dueTodayCount,
+      totalTasks,
+      inProgress,
+      completed,
+      byStatus: statusCounts.reduce((acc, item) => {
+        acc[item.status] = item._count;
+        return acc;
+      }, {} as Record<string, number>),
+    };
+
+    console.log('📊 Stats computed:', stats);
+
     res.json({
       success: true,
-      data: {
-        personal: personalCount,
-        assigned: assignedCount,
-        overdue: overdueCount,
-        dueToday: dueTodayCount,
-        byStatus: statusCounts.reduce((acc, item) => {
-          acc[item.status] = item._count;
-          return acc;
-        }, {} as Record<string, number>),
-      },
+      data: stats,
     });
   } catch (error) {
     console.error('Get task stats error:', error);
