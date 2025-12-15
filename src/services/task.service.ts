@@ -1,4 +1,4 @@
-// services/task.service.ts (add notification hooks)
+// services/task.service.ts
 import { prisma } from "../index.js";
 import { notifyUser, notifyTaskAssignees } from "../utils/notification.helpers.js";
 
@@ -12,34 +12,124 @@ export const TaskService = {
     projectId?: string;
     createdById: string;
     assigneeIds?: string[];
-    // ... other task fields
-  }) {
-    const task = await prisma.task.create({
-      data: {
-        title: data.title,
-        description: data.description,
-        projectId: data.projectId,
-        createdById: data.createdById,
-        // ... other fields
-      },
-    });
+    status?: string;
+    priority?: string;
+    dueDate?: Date;
+    startDate?: Date;
+    estimatedHours?: number;
 
-    // Assign users if provided
-    if (data.assigneeIds && data.assigneeIds.length > 0) {
-      await prisma.taskAssignee.createMany({
-        data: data.assigneeIds.map((userId) => ({
-          taskId: task.id,
-          userId,
-        })),
+    // Focus features (matching your Task model)
+    focusRequired?: boolean;
+    focusLevel?: number;
+    energyType?: "LOW" | "MEDIUM" | "HIGH";
+    distractionCost?: number;
+
+    // TaskMetadata fields (optional)
+    energy?: "LOW" | "MEDIUM" | "HIGH";
+    effort?: "QUICK" | "MEDIUM" | "DEEP";
+    intent?: "OUTCOME" | "LEARNING" | "MAINTENANCE" | "CREATIVE";
+  }) {
+    // Resolve workspaceId from project (if any)
+    let workspaceId: string | null = null;
+
+    if (data.projectId) {
+      const project = await prisma.project.findUnique({
+        where: { id: data.projectId },
+        select: { workspaceId: true },
       });
 
-      // Get creator name
+      if (!project) {
+        throw new Error("Invalid project");
+      }
+
+      workspaceId = project.workspaceId;
+    }
+
+    // 🔐 Atomic creation
+    const task = await prisma.$transaction(async (tx) => {
+      // Build the task data object
+      const taskData: any = {
+        title: data.title,
+        createdById: data.createdById,
+        status: data.status || "TODO",
+        priority: data.priority || "MEDIUM",
+        
+        // Focus features (stored directly on Task)
+        focusRequired: data.focusRequired ?? false,
+        focusLevel: data.focusLevel ?? 3,
+        energyType: data.energyType,
+        distractionCost: data.distractionCost ?? 1,
+      };
+
+      // Add optional fields
+      if (data.description) {
+        taskData.description = data.description;
+      }
+
+      if (data.dueDate) {
+        taskData.dueDate = data.dueDate;
+      }
+
+      if (data.startDate) {
+        taskData.startDate = data.startDate;
+      }
+
+      if (data.estimatedHours !== undefined) {
+        taskData.estimatedHours = data.estimatedHours;
+      }
+
+      if (data.projectId) {
+        taskData.project = { connect: { id: data.projectId } };
+      }
+
+      if (workspaceId) {
+        taskData.workspace = { connect: { id: workspaceId } };
+      }
+
+      // Create the task
+      const task = await tx.task.create({
+        data: taskData,
+      });
+
+      
+      // 👥 Assign users (safe + unique)
+      if (data.assigneeIds?.length) {
+        await tx.taskAssignee.createMany({
+          data: data.assigneeIds.map((userId) => ({
+            taskId: task.id,
+            userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      // 📝 Workspace activity (optional but correct)
+      if (workspaceId) {
+        await tx.activity.create({
+          data: {
+            action: "CREATED",
+            entityType: "TASK",
+            entityId: task.id,
+            taskId: task.id,
+            userId: data.createdById,
+            workspaceId,
+            metadata: {
+              title: task.title,
+            },
+          },
+        });
+      }
+
+      return task;
+    });
+
+    // 🔔 Notifications AFTER commit
+    if (data.assigneeIds?.length) {
       const creator = await prisma.user.findUnique({
         where: { id: data.createdById },
         select: { name: true },
       });
 
-      // Notify assignees (exclude creator)
       for (const userId of data.assigneeIds) {
         if (userId !== data.createdById) {
           await notifyUser({

@@ -336,16 +336,59 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       assigneeIds,
       labelIds,
       parentId,
+
+      // 🔥 Focura focus features
+      focusRequired = false,
+      focusLevel,
+      energyType,
+      distractionCost,
     } = req.body;
 
-    if (!title) {
+    if (!title?.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Task title is required',
+        message: "Task title is required",
       });
     }
 
-    // Determine workspaceId based on projectId
+    // -----------------------------
+    // Focus feature validation
+    // -----------------------------
+    if (focusLevel !== undefined && (focusLevel < 1 || focusLevel > 5)) {
+      return res.status(400).json({
+        success: false,
+        message: "Focus level must be between 1 and 5",
+      });
+    }
+
+    if (
+      energyType &&
+      !["LOW", "MEDIUM", "HIGH"].includes(energyType)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid energy type",
+      });
+    }
+
+    if (distractionCost !== undefined && distractionCost < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Distraction cost cannot be negative",
+      });
+    }
+
+    // Prevent overload (focus-first principle)
+    if (assigneeIds?.length > 5) {
+      return res.status(400).json({
+        success: false,
+        message: "Too many assignees reduce task focus",
+      });
+    }
+
+    // -----------------------------
+    // Workspace access resolution
+    // -----------------------------
     let finalWorkspaceId: string | null = null;
 
     if (projectId) {
@@ -364,64 +407,75 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       if (!project) {
         return res.status(403).json({
           success: false,
-          message: 'You do not have access to this project',
+          message: "You do not have access to this project",
         });
       }
 
       finalWorkspaceId = project.workspaceId;
     }
 
-    // Build the data object using Prisma relations
+    // -----------------------------
+    // Smart default priority (Focura logic)
+    // -----------------------------
+    let computedPriority = priority ?? "MEDIUM";
+
+    if (!priority && dueDate) {
+      const hoursLeft =
+        (new Date(dueDate).getTime() - Date.now()) / 36e5;
+
+      if (hoursLeft <= 24) computedPriority = "HIGH";
+    }
+
+    // -----------------------------
+    // Build Prisma data
+    // -----------------------------
     const taskData: any = {
       title,
       description,
       status: status || "TODO",
-      priority: priority || "MEDIUM",
+      priority: computedPriority,
       dueDate: dueDate ? new Date(dueDate) : null,
       startDate: startDate ? new Date(startDate) : null,
       estimatedHours,
+
+      // 🔥 Focus fields
+      focusRequired,
+      focusLevel,
+      energyType,
+      distractionCost,
+
       createdBy: {
-        connect: {
-          id: req.user!.id,
-        },
+        connect: { id: req.user!.id },
       },
     };
 
-    // Connect to project if provided (using relation, not projectId)
     if (projectId) {
-      taskData.project = {
-        connect: { id: projectId }
-      };
+      taskData.project = { connect: { id: projectId } };
     }
 
-    // Connect to workspace if it exists (using relation, not workspaceId)
     if (finalWorkspaceId) {
-      taskData.workspace = {
-        connect: { id: finalWorkspaceId }
-      };
+      taskData.workspace = { connect: { id: finalWorkspaceId } };
     }
 
-    // Connect to parent task if provided
     if (parentId) {
-      taskData.parent = {
-        connect: { id: parentId }
-      };
+      taskData.parent = { connect: { id: parentId } };
     }
 
-    // Add assignees if provided
-    if (assigneeIds && assigneeIds.length > 0) {
+    if (assigneeIds?.length) {
       taskData.assignees = {
         create: assigneeIds.map((userId: string) => ({ userId })),
       };
     }
 
-    // Add labels if provided
-    if (labelIds && labelIds.length > 0) {
+    if (labelIds?.length) {
       taskData.labels = {
         create: labelIds.map((labelId: string) => ({ labelId })),
       };
     }
 
+    // -----------------------------
+    // Create task
+    // -----------------------------
     const task = await prisma.task.create({
       data: taskData,
       include: {
@@ -430,20 +484,20 @@ export const createTask = async (req: AuthRequest, res: Response) => {
         },
         assignees: {
           include: {
-            user: { select: { id: true, name: true, email: true, image: true } },
+            user: {
+              select: { id: true, name: true, email: true, image: true },
+            },
           },
         },
         labels: { include: { label: true } },
-        project: { 
-          select: { 
-            id: true, 
-            name: true, 
-            color: true, 
+        project: {
+          select: {
+            id: true,
+            name: true,
+            color: true,
             workspaceId: true,
-            workspace: {
-              select: { id: true, name: true }
-            }
-          } 
+            workspace: { select: { id: true, name: true } },
+          },
         },
         _count: {
           select: {
@@ -455,63 +509,63 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // Only create activity if it's a workspace task
+    // -----------------------------
+    // Activity log
+    // -----------------------------
     if (finalWorkspaceId) {
       await prisma.activity.create({
         data: {
-          action: 'CREATED',
-          entityType: 'TASK',
+          action: "CREATED",
+          entityType: "TASK",
           entityId: task.id,
           userId: req.user!.id,
           workspaceId: finalWorkspaceId,
           taskId: task.id,
           metadata: {
             taskTitle: task.title,
+            focusRequired,
+            energyType,
           },
         },
       });
     }
 
-    // Send notifications to assignees
-    if (assigneeIds && assigneeIds.length > 0) {
+    // -----------------------------
+    // Notifications
+    // -----------------------------
+    if (assigneeIds?.length) {
       for (const userId of assigneeIds) {
         if (userId !== req.user!.id) {
-          try {
-            await notifyUser({
-              userId,
-              senderId: req.user!.id,
-              type: 'TASK_ASSIGNED',
-              title: 'New Task Assigned',
-              message: `${req.user!.name || 'Someone'} assigned you to "${task.title}"`,
-              actionUrl: `/dashboard/tasks/${task.id}`,
-            });
-          } catch (notifError) {
-            console.error('Failed to send notification:', notifError);
-          }
+          notifyUser({
+            userId,
+            senderId: req.user!.id,
+            type: "TASK_ASSIGNED",
+            title: "New Task Assigned",
+            message: `${req.user!.name || "Someone"} assigned you a task`,
+            actionUrl: `/dashboard/tasks/${task.id}`,
+          }).catch(() => {});
         }
       }
     }
 
-    // Add time tracking info
-    const taskWithTimeInfo = {
-      ...task,
-      timeTracking: getTimeStatus(task),
-    };
-
     res.status(201).json({
       success: true,
-      message: 'Task created successfully',
-      data: taskWithTimeInfo,
+      message: "Task created successfully",
+      data: {
+        ...task,
+        timeTracking: getTimeStatus(task),
+      },
     });
   } catch (error) {
-    console.error('Create task error:', error);
+    console.error("Create task error:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create task',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      message: "Failed to create task",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
+
 
 export const getTask = async (req: AuthRequest, res: Response) => {
   try {

@@ -363,54 +363,59 @@ model ProjectFavorite {
 // ============================================
 
 model Task {
-  id          String  @id @default(cuid())
-  title       String
-  description String? @db.Text
+  id              String      @id @default(cuid())
+  title           String
+  description     String?     @db.Text
+  focusRequired   Boolean     @default(false)
+  focusLevel      Int? // 1–5 (mental load)
+  energyType      TaskEnergy? // MORNING / AFTERNOON / EVENING
+  distractionCost Int? // context switching penalty
 
   status   TaskStatus @default(TODO)
   priority Priority   @default(MEDIUM)
 
-  // Dates
   startDate   DateTime?
   dueDate     DateTime?
   completedAt DateTime?
 
-  // Time tracking
   estimatedHours Int?
   actualHours    Float?
 
-  // Position for ordering
   position Int @default(0)
 
-  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
   projectId   String?
   createdById String
-  parentId    String? // For subtasks
-  workspaceId String? // Make sure this is optional
+  parentId    String?
+  workspaceId String?
 
   project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy User       @relation("TaskCreator", fields: [createdById], references: [id])
   parent    Task?      @relation("Subtasks", fields: [parentId], references: [id])
   subtasks  Task[]     @relation("Subtasks")
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull) // Changed to SetNull
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
 
-  assignees   TaskAssignee[]
-  labels      TaskLabel[]
-  comments    Comment[]
-  files       File[]
-  timeEntries TimeEntry[]
-  activities  Activity[]
+  assignees    TaskAssignee[]
+  labels       TaskLabel[]
+  comments     Comment[]
+  files        File[]
+  timeEntries  TimeEntry[]
+  activities   Activity[]
+  dependencies TaskDependency[] @relation("TaskDependsOn")
+  blockedBy    TaskDependency[] @relation("TaskBlockedBy")
+  recurrence   TaskRecurrence?
 
   @@index([projectId])
   @@index([createdById])
   @@index([status])
   @@index([priority])
   @@index([dueDate])
-  @@index([workspaceId]) // Add index for performance
+  @@index([workspaceId])
+  @@index([focusRequired])
+  @@index([energyType])
+  @@index([createdAt])
 }
 
 enum TaskStatus {
@@ -442,6 +447,62 @@ model TaskAssignee {
   @@unique([taskId, userId])
   @@index([taskId])
   @@index([userId])
+}
+
+enum TaskEnergy {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TaskEffort {
+  QUICK
+  MEDIUM
+  DEEP
+}
+
+enum TaskIntent {
+  OUTCOME
+  LEARNING
+  MAINTENANCE
+  CREATIVE
+}
+
+model TaskDependency {
+  id          String @id @default(cuid())
+  taskId      String
+  dependsOnId String
+
+  type DependencyType @default(BLOCKING)
+
+  task      Task @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("TaskBlockedBy", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnId])
+}
+
+enum DependencyType {
+  BLOCKING
+  RELATED
+}
+
+model TaskRecurrence {
+  id     String @id @default(cuid())
+  taskId String @unique
+
+  pattern  RecurrencePattern
+  interval Int               @default(1)
+  days     Json? // e.g. ["MON", "WED"]
+  endsAt   DateTime?
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+enum RecurrencePattern {
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
 }
 
 // ============================================
