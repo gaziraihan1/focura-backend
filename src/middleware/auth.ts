@@ -23,21 +23,18 @@ export const authenticate = async (
     let token: string | undefined;
 
     const authHeader = req.headers.authorization;
-    if (authHeader?.startsWith("Bearer ")) {
-      token = authHeader.substring(7);
-      if (process.env.NODE_ENV === "development") {
-        console.log("🔵 Token extracted from Authorization header");
-      }
+    
+    if (authHeader) {
+     if (!authHeader.startsWith("Bearer ")) {
+       return res.status(401).json({
+        success: false,
+        message: "Invalid authorization header format",
+      });
     }
+    token = authHeader.slice(7).trim();
+  }
 
-    if (!token && req.query.token) {
-      token = String(req.query.token);
-      if (process.env.NODE_ENV === "development") {
-        console.log("🟢 Token extracted from query parameter");
-      }
-    }
-
-    // No token → reject
+ 
     if (!token || token.trim() === "") {
       return res.status(401).json({
         success: false,
@@ -58,6 +55,7 @@ export const authenticate = async (
     const decoded = jwt.verify(token, process.env.BACKEND_JWT_SECRET, {
       algorithms: ["HS256"],
       issuer: "focura-app",
+      audience: "focura-backend",
     }) as JwtPayload;
 
     if (!decoded.sub) {
@@ -66,6 +64,7 @@ export const authenticate = async (
         message: "Invalid token payload",
       });
     }
+    
 
     // Fetch user
     const user = await prisma.user.findUnique({

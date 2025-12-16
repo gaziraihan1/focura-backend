@@ -15,7 +15,6 @@ import uploadRoutes from './routes/upload.routes.js';
 import labelRoutes from './routes/label.routes.js';
 import notificationRoutes from './routes/notification.route.js';
 import workspaceRoutes from './routes/workspace.routes.js';
-import authRoutes from './routes/auth.routes.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -74,11 +73,13 @@ app.use(helmet({
 
 app.use((req: Request, res: Response, next) => {
   if (process.env.NODE_ENV === 'development') {
-    console.log(`${req.method} ${req.path}`, {
-      origin: req.headers.origin,
-      hasAuth: !!req.headers.authorization,
-      authType: req.headers.authorization?.split(' ')[0] || 'none',
-    });
+    if (!req.path.includes('/stream')) {
+      console.log(`${req.method} ${req.path}`, {
+        origin: req.headers.origin,
+        hasAuth: !!req.headers.authorization,
+        authType: req.headers.authorization?.split(' ')[0] || 'none',
+      });
+    }
   }
   next();
 });
@@ -127,7 +128,7 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
   });
 });
 
-app.use('/api/auth', authRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.use('/api/workspaces', authenticate, workspaceRoutes);
 app.use('/api/projects', authenticate, projectRoutes);
@@ -137,7 +138,6 @@ app.use('/api/activities', authenticate, activityRoutes);
 app.use('/api/user', authenticate, userRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
 app.use('/api/labels', authenticate, labelRoutes);
-app.use('/api/notifications', authenticate, notificationRoutes);
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);
@@ -158,6 +158,7 @@ const server = app.listen(PORT, () => {
   console.log(`🌐 Allowed Origins:`, allowedOrigins);
   console.log(`🔒 HTTPS Required: ${isProd}`);
   console.log(`🔑 Auth Method: Authorization Header (Bearer Token)`);
+  console.log(`📡 SSE: /api/notifications/stream/:userId (query token auth)`);
   console.log('='.repeat(60));
 }).on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
