@@ -23,12 +23,19 @@ export const TaskService = {
     focusLevel?: number;
     energyType?: "LOW" | "MEDIUM" | "HIGH";
     distractionCost?: number;
-
-    // TaskMetadata fields (optional)
-    energy?: "LOW" | "MEDIUM" | "HIGH";
-    effort?: "QUICK" | "MEDIUM" | "DEEP";
-    intent?: "OUTCOME" | "LEARNING" | "MAINTENANCE" | "CREATIVE";
+    intent?: "EXECUTION" | "PLANNING" | "REVIEW" | "LEARNING" | "COMMUNICATION"; // ✅ NOW PROPERLY TYPED
   }) {
+    // ✅ Validate intent if provided
+    if (data.intent && ![
+      "EXECUTION",
+      "PLANNING",
+      "REVIEW",
+      "LEARNING",
+      "COMMUNICATION",
+    ].includes(data.intent)) {
+      throw new Error("Invalid task intent");
+    }
+
     // Resolve workspaceId from project (if any)
     let workspaceId: string | null = null;
 
@@ -59,6 +66,7 @@ export const TaskService = {
         focusLevel: data.focusLevel ?? 3,
         energyType: data.energyType,
         distractionCost: data.distractionCost ?? 1,
+        intent: data.intent || "EXECUTION", // ✅ NOW PROPERLY STORED WITH DEFAULT
       };
 
       // Add optional fields
@@ -91,7 +99,6 @@ export const TaskService = {
         data: taskData,
       });
 
-      
       // 👥 Assign users (safe + unique)
       if (data.assigneeIds?.length) {
         await tx.taskAssignee.createMany({
@@ -115,6 +122,9 @@ export const TaskService = {
             workspaceId,
             metadata: {
               title: task.title,
+              intent: data.intent, // ✅ Log intent in activity
+              focusRequired: data.focusRequired,
+              energyType: data.energyType,
             },
           },
         });
@@ -143,6 +153,64 @@ export const TaskService = {
         }
       }
     }
+
+    return task;
+  },
+
+  /**
+   * Update task with intent and focus features
+   */
+  async updateTask(params: {
+    taskId: string;
+    updatedBy: string;
+    data: {
+      title?: string;
+      description?: string;
+      status?: string;
+      priority?: string;
+      dueDate?: Date | null;
+      startDate?: Date | null;
+      estimatedHours?: number;
+      focusRequired?: boolean;
+      focusLevel?: number;
+      energyType?: "LOW" | "MEDIUM" | "HIGH" | null;
+      distractionCost?: number;
+      intent?: "EXECUTION" | "PLANNING" | "REVIEW" | "LEARNING" | "COMMUNICATION"; // ✅ NOW IN UPDATE
+    };
+  }) {
+    // ✅ Validate intent if provided
+    if (params.data.intent && ![
+      "EXECUTION",
+      "PLANNING",
+      "REVIEW",
+      "LEARNING",
+      "COMMUNICATION",
+    ].includes(params.data.intent)) {
+      throw new Error("Invalid task intent");
+    }
+
+    const updateData: any = {};
+
+    // Only include fields that are explicitly provided
+    if (params.data.title !== undefined) updateData.title = params.data.title;
+    if (params.data.description !== undefined) updateData.description = params.data.description;
+    if (params.data.status !== undefined) updateData.status = params.data.status;
+    if (params.data.priority !== undefined) updateData.priority = params.data.priority;
+    if (params.data.dueDate !== undefined) updateData.dueDate = params.data.dueDate;
+    if (params.data.startDate !== undefined) updateData.startDate = params.data.startDate;
+    if (params.data.estimatedHours !== undefined) updateData.estimatedHours = params.data.estimatedHours;
+    
+    // Focus features
+    if (params.data.focusRequired !== undefined) updateData.focusRequired = params.data.focusRequired;
+    if (params.data.focusLevel !== undefined) updateData.focusLevel = params.data.focusLevel;
+    if (params.data.energyType !== undefined) updateData.energyType = params.data.energyType;
+    if (params.data.distractionCost !== undefined) updateData.distractionCost = params.data.distractionCost;
+    if (params.data.intent !== undefined) updateData.intent = params.data.intent; // ✅ NOW UPDATES INTENT
+
+    const task = await prisma.task.update({
+      where: { id: params.taskId },
+      data: updateData,
+    });
 
     return task;
   },
@@ -308,5 +376,54 @@ export const TaskService = {
     }
 
     return task;
+  },
+
+  /**
+   * Get tasks by intent (for focus mode filtering)
+   */
+  async getTasksByIntent(params: {
+    userId: string;
+    intent: "EXECUTION" | "PLANNING" | "REVIEW" | "LEARNING" | "COMMUNICATION";
+    workspaceId?: string;
+  }) {
+    const where: any = {
+      intent: params.intent,
+      OR: [
+        { createdById: params.userId },
+        { assignees: { some: { userId: params.userId } } },
+      ],
+      status: { notIn: ['COMPLETED', 'CANCELLED'] },
+    };
+
+    if (params.workspaceId) {
+      where.project = {
+        workspaceId: params.workspaceId,
+      };
+    }
+
+    const tasks = await prisma.task.findMany({
+      where,
+      include: {
+        assignees: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, image: true },
+            },
+          },
+        },
+        labels: {
+          include: { label: true },
+        },
+        project: {
+          select: { id: true, name: true, color: true },
+        },
+      },
+      orderBy: [
+        { priority: 'desc' },
+        { dueDate: 'asc' },
+      ],
+    });
+
+    return tasks;
   },
 };

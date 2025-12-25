@@ -36,6 +36,111 @@ const updateProjectMemberRoleSchema = z.object({
   role: z.enum(['MANAGER', 'COLLABORATOR', 'VIEWER']),
 });
 
+// Add this function to your project controller file
+
+// ========================================================
+// GET /projects/user/all → Get all projects user is a member of
+// ========================================================
+export const getUserProjects = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+
+    // Get all projects where user is a member (through ProjectMember)
+    // OR where user is a workspace member (through workspace access)
+    const projects = await prisma.project.findMany({
+      where: {
+        OR: [
+          // Direct project membership
+          {
+            members: {
+              some: {
+                userId,
+              },
+            },
+          },
+          // Workspace membership (workspace owner or member)
+          {
+            workspace: {
+              OR: [
+                { ownerId: userId },
+                { members: { some: { userId } } },
+              ],
+            },
+          },
+        ],
+      },
+      include: {
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+            ownerId: true,
+          },
+        },
+        members: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+              },
+            },
+          },
+          orderBy: { joinedAt: 'asc' },
+        },
+        _count: {
+          select: {
+            tasks: true,
+          },
+        },
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    });
+
+    // For each project, check if user is workspace admin
+    const projectsWithAdminFlag = await Promise.all(
+      projects.map(async (project) => {
+        let isAdmin = false;
+
+        if (project.workspace) {
+          // Check if user is workspace owner or admin
+          const workspaceMember = await prisma.workspaceMember.findFirst({
+            where: {
+              workspaceId: project.workspace.id,
+              userId,
+              role: {
+                in: ['OWNER', 'ADMIN'],
+              },
+            },
+          });
+
+          isAdmin = !!workspaceMember || project.workspace.ownerId === userId;
+        }
+
+        return {
+          ...project,
+          isAdmin,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: projectsWithAdminFlag,
+    });
+  } catch (error) {
+    console.error('Get user projects error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user projects',
+    });
+  }
+};
+
 // ========================================================
 // GET /projects/:projectId → Get full project details
 // ========================================================

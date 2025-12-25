@@ -9,13 +9,16 @@ import {
   addProjectMember,
   updateProjectMemberRole,
   removeProjectMember,
+  getUserProjects,
 } from '../controllers/project.controller.js';
 
 const router = Router();
 
 // Project CRUD - IMPORTANT: Specific routes MUST come before parameterized routes
 router.post('/', createProject);                                           // Create project
-router.get('/workspace/:workspaceId', getProjectsByWorkspace);             // Get workspace projects (specific route)
+router.get('/workspace/:workspaceId', getProjectsByWorkspace);             // Get workspace 
+router.get('/user/all', getUserProjects)
+// projects (specific route)
 router.get('/:projectId', getProjectDetails);                              // Get project details (parameterized route)
 router.patch('/:projectId', updateProject);                                // Update project
 router.delete('/:projectId', deleteProject);                               // Delete project

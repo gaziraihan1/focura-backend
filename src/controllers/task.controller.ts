@@ -23,13 +23,12 @@ const getTimeStatus = (task: any) => {
     
     // Check if overdue based on time spent vs estimated hours
     if (task.estimatedHours && task.actualHours) {
-  isOverdue = task.actualHours > task.estimatedHours;
-} else if (task.estimatedHours) {
-  isOverdue = hoursSinceCreation > task.estimatedHours;
-} else {
-  isOverdue = now > dueDate;
-}
-
+      isOverdue = task.actualHours > task.estimatedHours;
+    } else if (task.estimatedHours) {
+      isOverdue = hoursSinceCreation > task.estimatedHours;
+    } else {
+      isOverdue = now > dueDate;
+    }
     
     // Check if due today
     const todayStart = new Date(now);
@@ -94,9 +93,8 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
     }
 
     if (workspaceId) {
-  where.project = { ...where.project, workspaceId };
-}
-
+      where.project = { ...where.project, workspaceId };
+    }
 
     if (projectId) {
       where.projectId = projectId;
@@ -170,12 +168,10 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Replace the getTaskStats function in your task.controller.ts
-
 export const getTaskStats = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
-    const { workspaceId } = req.query; // Get workspaceId from query params
+    const { workspaceId } = req.query;
     
     console.log('📊 GET /api/tasks/stats called');
     console.log('  User:', req.user?.email);
@@ -205,7 +201,7 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
       where: {
         projectId: null,
         createdById: userId,
-        ...(workspaceId && { workspaceId: null }), // Exclude when filtering workspace
+        ...(workspaceId && { workspaceId: null }),
       },
     });
 
@@ -294,7 +290,7 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
     });
 
     const stats = {
-      personal: workspaceId ? 0 : personalCount, // Hide personal when filtering workspace
+      personal: workspaceId ? 0 : personalCount,
       assigned: assignedCount,
       overdue: overdueCount,
       dueToday: dueTodayCount,
@@ -342,7 +338,21 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       focusLevel,
       energyType,
       distractionCost,
+      intent, // ✅ NOW PROPERLY HANDLED
     } = req.body;
+
+    if (intent && ![
+      "EXECUTION",
+      "PLANNING",
+      "REVIEW",
+      "LEARNING",
+      "COMMUNICATION",
+    ].includes(intent)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid task intent. Must be one of: EXECUTION, PLANNING, REVIEW, LEARNING, COMMUNICATION",
+      });
+    }
 
     if (!title?.trim()) {
       return res.status(400).json({
@@ -361,13 +371,10 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (
-      energyType &&
-      !["LOW", "MEDIUM", "HIGH"].includes(energyType)
-    ) {
+    if (energyType && !["LOW", "MEDIUM", "HIGH"].includes(energyType)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid energy type",
+        message: "Invalid energy type. Must be one of: LOW, MEDIUM, HIGH",
       });
     }
 
@@ -420,9 +427,7 @@ export const createTask = async (req: AuthRequest, res: Response) => {
     let computedPriority = priority ?? "MEDIUM";
 
     if (!priority && dueDate) {
-      const hoursLeft =
-        (new Date(dueDate).getTime() - Date.now()) / 36e5;
-
+      const hoursLeft = (new Date(dueDate).getTime() - Date.now()) / 36e5;
       if (hoursLeft <= 24) computedPriority = "HIGH";
     }
 
@@ -438,11 +443,11 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       startDate: startDate ? new Date(startDate) : null,
       estimatedHours,
 
-      // 🔥 Focus fields
       focusRequired,
       focusLevel,
       energyType,
       distractionCost,
+      intent,
 
       createdBy: {
         connect: { id: req.user!.id },
@@ -525,6 +530,7 @@ export const createTask = async (req: AuthRequest, res: Response) => {
             taskTitle: task.title,
             focusRequired,
             energyType,
+            intent, 
           },
         },
       });
@@ -566,7 +572,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
   }
 };
 
-
 export const getTask = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -576,9 +581,7 @@ export const getTask = async (req: AuthRequest, res: Response) => {
         id,
         OR: [
           { createdById: req.user!.id },
-          { assignees: { some: { userId: req.user!.id 
-
-          } } },
+          { assignees: { some: { userId: req.user!.id } } },
           {
             project: {
               workspace: {
@@ -651,8 +654,6 @@ export const getTask = async (req: AuthRequest, res: Response) => {
         message: 'Task not found',
       });
     }
-    // console.log('User:', req.user);
-
 
     // Add time tracking info
     const taskWithTimeInfo = {
@@ -686,7 +687,39 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       estimatedHours,
       assigneeIds,
       labelIds,
+      focusRequired,
+      focusLevel,
+      energyType,
+      distractionCost,
+      intent, 
     } = req.body;
+
+    if (intent !== undefined && intent !== null && ![
+      "EXECUTION",
+      "PLANNING",
+      "REVIEW",
+      "LEARNING",
+      "COMMUNICATION",
+    ].includes(intent)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid task intent. Must be one of: EXECUTION, PLANNING, REVIEW, LEARNING, COMMUNICATION",
+      });
+    }
+
+    if (focusLevel !== undefined && (focusLevel < 1 || focusLevel > 5)) {
+      return res.status(400).json({
+        success: false,
+        message: "Focus level must be between 1 and 5",
+      });
+    }
+
+    if (energyType && !["LOW", "MEDIUM", "HIGH"].includes(energyType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid energy type",
+      });
+    }
 
     const existingTask = await prisma.task.findFirst({
       where: {
@@ -737,6 +770,11 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
         }),
         ...(estimatedHours !== undefined && { estimatedHours }),
         ...(wasCompleted && { completedAt: new Date() }),
+        ...(focusRequired !== undefined && { focusRequired }),
+        ...(focusLevel !== undefined && { focusLevel }),
+        ...(energyType !== undefined && { energyType }),
+        ...(distractionCost !== undefined && { distractionCost }),
+        ...(intent !== undefined && { intent }), // ✅ NOW UPDATES INTENT
       },
       include: {
         createdBy: {

@@ -369,6 +369,7 @@ model Task {
   focusRequired   Boolean     @default(false)
   focusLevel      Int? // 1–5 (mental load)
   energyType      TaskEnergy? // MORNING / AFTERNOON / EVENING
+  intent          TaskIntent? @default(EXECUTION)
   distractionCost Int? // context switching penalty
 
   status   TaskStatus @default(TODO)
@@ -462,10 +463,11 @@ enum TaskEffort {
 }
 
 enum TaskIntent {
-  OUTCOME
+  EXECUTION
+  PLANNING
+  REVIEW
   LEARNING
-  MAINTENANCE
-  CREATIVE
+  COMMUNICATION
 }
 
 model TaskDependency {
