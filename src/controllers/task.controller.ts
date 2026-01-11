@@ -3,16 +3,13 @@ import { AuthRequest } from '../middleware/auth.js';
 import { prisma } from '../index.js';
 import { notifyUser, notifyTaskAssignees } from '../utils/notification.helpers.js';
 
-// Helper function to calculate time-based status
 const getTimeStatus = (task: any) => {
   const now = new Date();
   const createdAt = new Date(task.createdAt);
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
   
-  // Hours since creation
   const hoursSinceCreation = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60));
   
-  // Hours until due
   let hoursUntilDue = null;
   let isOverdue = false;
   let isDueToday = false;
@@ -21,7 +18,6 @@ const getTimeStatus = (task: any) => {
     const msUntilDue = dueDate.getTime() - now.getTime();
     hoursUntilDue = Math.floor(msUntilDue / (1000 * 60 * 60));
     
-    // Check if overdue based on time spent vs estimated hours
     if (task.estimatedHours && task.actualHours) {
       isOverdue = task.actualHours > task.estimatedHours;
     } else if (task.estimatedHours) {
@@ -30,7 +26,6 @@ const getTimeStatus = (task: any) => {
       isOverdue = now > dueDate;
     }
     
-    // Check if due today
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(now);
@@ -149,7 +144,6 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
       ],
     });
 
-    // Add time tracking info to each task
     const tasksWithTimeInfo = tasks.map(task => ({
       ...task,
       timeTracking: getTimeStatus(task),
@@ -171,60 +165,100 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
 export const getTaskStats = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
-    const { workspaceId } = req.query;
+    const { workspaceId, type } = req.query;
     
     console.log('📊 GET /api/tasks/stats called');
     console.log('  User:', req.user?.email);
     console.log('  WorkspaceId:', workspaceId);
+    console.log('  Type:', type);
     console.log('  Query params:', req.query);
 
-    // Build base where clause
-    let baseWhere: any = {
-      OR: [
-        { createdById: userId },
-        { assignees: { some: { userId } } },
-      ],
-    };
+    let baseWhere: any = {};
 
-    // If workspaceId provided, filter by workspace
-    if (workspaceId && typeof workspaceId === 'string') {
+    // Apply type filter
+    if (type === 'personal') {
       baseWhere = {
-        ...baseWhere,
-        project: {
-          workspaceId: workspaceId,
+        projectId: null,
+        createdById: userId,
+      };
+    } else if (type === 'assigned') {
+      baseWhere = {
+        assignees: {
+          some: { userId },
         },
+      };
+    } else if (type === 'created') {
+      baseWhere = {
+        createdById: userId,
+      };
+    } else {
+      // 'all' or no type specified - include both created and assigned tasks
+      baseWhere = {
+        OR: [
+          { createdById: userId },
+          { assignees: { some: { userId } } },
+        ],
       };
     }
 
-    // Personal tasks (no project) - exclude when filtering by workspace
+    // Apply workspace filter if provided
+    if (workspaceId && typeof workspaceId === 'string') {
+      if (type === 'personal') {
+        // Personal tasks shouldn't have workspace filter
+        baseWhere = {
+          ...baseWhere,
+          workspaceId: null,
+        };
+      } else {
+        baseWhere = {
+          ...baseWhere,
+          project: {
+            workspaceId: workspaceId,
+          },
+        };
+      }
+    }
+
+    // Calculate personal count (always unfiltered by workspace for this stat)
     const personalCount = await prisma.task.count({
       where: {
         projectId: null,
         createdById: userId,
-        ...(workspaceId && { workspaceId: null }),
       },
     });
 
-    // Assigned tasks
+    // Calculate assigned count
+    const assignedCountWhere: any = {
+      assignees: {
+        some: { userId },
+      },
+    };
+    if (workspaceId && typeof workspaceId === 'string') {
+      assignedCountWhere.project = {
+        workspaceId: workspaceId,
+      };
+    }
     const assignedCount = await prisma.task.count({
-      where: {
-        assignees: {
-          some: { userId },
-        },
-        ...(workspaceId && {
-          project: {
-            workspaceId: workspaceId as string,
-          },
-        }),
-      },
+      where: assignedCountWhere,
     });
 
-    // Total tasks with filter
+    // Calculate created count
+    const createdCountWhere: any = {
+      createdById: userId,
+    };
+    if (workspaceId && typeof workspaceId === 'string') {
+      createdCountWhere.project = {
+        workspaceId: workspaceId,
+      };
+    }
+    const createdCount = await prisma.task.count({
+      where: createdCountWhere,
+    });
+
     const totalTasks = await prisma.task.count({
       where: baseWhere,
     });
 
-    // In Progress count
     const inProgress = await prisma.task.count({
       where: {
         ...baseWhere,
@@ -232,7 +266,6 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // Completed count
     const completed = await prisma.task.count({
       where: {
         ...baseWhere,
@@ -240,14 +273,12 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // Status counts
     const statusCounts = await prisma.task.groupBy({
       by: ['status'],
       where: baseWhere,
       _count: true,
     });
 
-    // Get all tasks to calculate smart overdue based on estimated hours
     const allUserTasks = await prisma.task.findMany({
       where: {
         ...baseWhere,
@@ -263,7 +294,6 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // Calculate overdue count with smart logic
     let overdueCount = 0;
     allUserTasks.forEach(task => {
       const timeStatus = getTimeStatus(task);
@@ -272,7 +302,6 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
       }
     });
 
-    // Due today calculation
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
@@ -290,8 +319,9 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
     });
 
     const stats = {
-      personal: workspaceId ? 0 : personalCount,
+      personal: type === 'assigned' ? 0 : (workspaceId ? 0 : personalCount),
       assigned: assignedCount,
+      created: createdCount,
       overdue: overdueCount,
       dueToday: dueTodayCount,
       totalTasks,
@@ -333,12 +363,11 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       labelIds,
       parentId,
 
-      // 🔥 Focura focus features
       focusRequired = false,
       focusLevel,
       energyType,
       distractionCost,
-      intent, // ✅ NOW PROPERLY HANDLED
+      intent, 
     } = req.body;
 
     if (intent && ![
@@ -361,9 +390,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // -----------------------------
-    // Focus feature validation
-    // -----------------------------
     if (focusLevel !== undefined && (focusLevel < 1 || focusLevel > 5)) {
       return res.status(400).json({
         success: false,
@@ -385,7 +411,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Prevent overload (focus-first principle)
     if (assigneeIds?.length > 5) {
       return res.status(400).json({
         success: false,
@@ -393,9 +418,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // -----------------------------
-    // Workspace access resolution
-    // -----------------------------
     let finalWorkspaceId: string | null = null;
 
     if (projectId) {
@@ -421,9 +443,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       finalWorkspaceId = project.workspaceId;
     }
 
-    // -----------------------------
-    // Smart default priority (Focura logic)
-    // -----------------------------
     let computedPriority = priority ?? "MEDIUM";
 
     if (!priority && dueDate) {
@@ -431,9 +450,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       if (hoursLeft <= 24) computedPriority = "HIGH";
     }
 
-    // -----------------------------
-    // Build Prisma data
-    // -----------------------------
     const taskData: any = {
       title,
       description,
@@ -478,9 +494,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       };
     }
 
-    // -----------------------------
-    // Create task
-    // -----------------------------
     const task = await prisma.task.create({
       data: taskData,
       include: {
@@ -514,9 +527,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // -----------------------------
-    // Activity log
-    // -----------------------------
     if (finalWorkspaceId) {
       await prisma.activity.create({
         data: {
@@ -536,9 +546,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // -----------------------------
-    // Notifications
-    // -----------------------------
     if (assigneeIds?.length) {
       for (const userId of assigneeIds) {
         if (userId !== req.user!.id) {
@@ -655,7 +662,6 @@ export const getTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Add time tracking info
     const taskWithTimeInfo = {
       ...task,
       timeTracking: getTimeStatus(task),
@@ -774,7 +780,7 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
         ...(focusLevel !== undefined && { focusLevel }),
         ...(energyType !== undefined && { energyType }),
         ...(distractionCost !== undefined && { distractionCost }),
-        ...(intent !== undefined && { intent }), // ✅ NOW UPDATES INTENT
+        ...(intent !== undefined && { intent }),
       },
       include: {
         createdBy: {
@@ -875,7 +881,6 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Add time tracking info
     const taskWithTimeInfo = {
       ...task,
       timeTracking: getTimeStatus(task),
@@ -933,7 +938,6 @@ export const updateTaskStatus = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Add time tracking info
     const taskWithTimeInfo = {
       ...updated,
       timeTracking: getTimeStatus(updated),
@@ -989,30 +993,6 @@ export const deleteTask = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete task',
-    });
-  }
-};
-
-export const testNotification = async (req: AuthRequest, res: Response) => {
-  try {
-    await notifyUser({
-      userId: req.user!.id,
-      type: 'TASK_ASSIGNED',
-      title: '🧪 Test Notification',
-      message: 'This is a test notification. If you see this, notifications are working!',
-      actionUrl: '/dashboard',
-    });
-
-    res.json({
-      success: true,
-      message: 'Test notification sent! Check your notification bell.',
-    });
-  } catch (error) {
-    console.error('Test notification error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send test notification',
-      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 };

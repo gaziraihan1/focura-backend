@@ -2,15 +2,15 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { addComment, deleteComment, getComments, updateComment } from '../controllers/comment.controller.js';
 
-const router = Router({ mergeParams: true }); // mergeParams to get taskId from parent route
+const router = Router({ mergeParams: true }); 
 
-router.use(authenticate); // all routes require auth
+router.use(authenticate);
 
-router.get('/', getComments);               // GET /api/tasks/:taskId/comments
-router.post('/', addComment);               // POST /api/tasks/:taskId/comments
-router.delete('/:commentId', deleteComment); // DELETE /api/tasks/:taskId/comments/:commentId
+router.get('/', getComments);             
+router.post('/', addComment);               
+router.delete('/:commentId', deleteComment); 
 // routes/comment.routes.ts
-router.put('/:commentId', updateComment); // PUT /api/tasks/:taskId/comments/:commentId
+router.put('/:commentId', updateComment); 
 
 
 export default router;

@@ -1,40 +1,27 @@
-import { Router, Response } from 'express';
-import { AuthRequest } from '../middleware/auth.js';
-import { prisma } from '../index.js';
+import { Router } from 'express';
+import {
+  getLabels,
+  getLabelById,
+  createLabel,
+  updateLabel,
+  deleteLabel,
+  addLabelToTask,
+  removeLabelFromTask,
+  getPopularLabels,
+} from '../controllers/label.controller.js';
 
 const router = Router();
 
-// GET /api/labels
-router.get('/', async (req: AuthRequest, res: Response) => {
-  try {
-    const labels = await prisma.label.findMany({
-      where: {
-        workspace: {
-          OR: [
-            { ownerId: req.user!.id },
-            { members: { some: { userId: req.user!.id } } },
-          ],
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-        color: true,
-      },
-      orderBy: { name: 'asc' },
-    });
+// Label CRUD
+router.get('/', getLabels);
+router.get('/popular', getPopularLabels);
+router.get('/:id', getLabelById);
+router.post('/', createLabel);
+router.patch('/:id', updateLabel);
+router.delete('/:id', deleteLabel);
 
-    res.json({
-      success: true,
-      data: labels,
-    });
-  } catch (error) {
-    console.error('Get labels error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch labels',
-    });
-  }
-});
+// Task label management
+router.post('/:labelId/tasks/:taskId', addLabelToTask);
+router.delete('/:labelId/tasks/:taskId', removeLabelFromTask);
 
 export default router;

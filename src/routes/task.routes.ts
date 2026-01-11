@@ -9,7 +9,6 @@ import {
   updateTask,
   updateTaskStatus,
   deleteTask,
-  testNotification,
 } from '../controllers/task.controller.js';
 import commentRoutes from './comment.routes.js';
 
@@ -22,7 +21,7 @@ const router = Router();
 router.get('/stats', getTaskStats);
 
 // Test notification endpoint
-router.post('/test-notification', testNotification);
+// router.post('/test-notification', testNotification);
 
 // Get all tasks
 router.get('/', getTasks);
