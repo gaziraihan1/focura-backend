@@ -516,6 +516,7 @@ model Label {
   name        String
   color       String  @default("#667eea")
   description String?
+  createdAt   DateTime @default(now())
 
   // Relations
   workspaceId String?
