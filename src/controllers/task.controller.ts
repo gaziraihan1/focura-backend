@@ -46,7 +46,7 @@ const getTimeStatus = (task: any) => {
 
 export const getTasks = async (req: AuthRequest, res: Response) => {
   try {
-    const { type, workspaceId, projectId, status, priority } = req.query;
+    const { type, workspaceId, projectId, status, priority, labelIds, assigneeId } = req.query;
     console.log('📋 GET /api/tasks called');
     console.log('  User:', req.user?.email);
     console.log('  Query params:', req.query);
@@ -101,6 +101,32 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
 
     if (priority) {
       where.priority = priority;
+    }
+
+    if (labelIds) {
+      const labelIdsArray = typeof labelIds === 'string' 
+        ? labelIds.split(',').filter(Boolean) 
+        : [];
+      
+      console.log('🏷️ Filtering by labels:', labelIdsArray);
+      
+      if (labelIdsArray.length > 0) {
+        where.labels = {
+          some: {
+            labelId: {
+              in: labelIdsArray,
+            },
+          },
+        };
+      }
+    }
+
+    if (assigneeId && type !== 'assigned') {
+      where.assignees = {
+        some: {
+          userId: assigneeId as string,
+        },
+      };
     }
 
     const tasks = await prisma.task.findMany({
@@ -680,6 +706,8 @@ export const getTask = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// In task.controller.ts - Update the updateTask function
+
 export const updateTask = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
@@ -697,9 +725,10 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       focusLevel,
       energyType,
       distractionCost,
-      intent, 
+      intent,
     } = req.body;
 
+    // Validation
     if (intent !== undefined && intent !== null && ![
       "EXECUTION",
       "PLANNING",
@@ -709,56 +738,74 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
     ].includes(intent)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid task intent. Must be one of: EXECUTION, PLANNING, REVIEW, LEARNING, COMMUNICATION",
+        message: "Invalid task intent",
       });
     }
 
-    if (focusLevel !== undefined && (focusLevel < 1 || focusLevel > 5)) {
-      return res.status(400).json({
-        success: false,
-        message: "Focus level must be between 1 and 5",
-      });
-    }
-
-    if (energyType && !["LOW", "MEDIUM", "HIGH"].includes(energyType)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid energy type",
-      });
-    }
-
+    // Fetch existing task with project and workspace info
     const existingTask = await prisma.task.findFirst({
-      where: {
-        id,
-        OR: [
-          { createdById: req.user!.id },
-          {
-            project: {
-              workspace: {
+      where: { id },
+      include: { 
+        project: {
+          include: {
+            workspace: {
+              include: {
                 members: {
-                  some: {
-                    userId: req.user!.id,
-                    role: { in: ['OWNER', 'ADMIN', 'MEMBER'] },
-                  },
+                  where: { userId: req.user!.id },
+                  select: { role: true },
                 },
               },
             },
+            members: {
+              where: { userId: req.user!.id },
+              select: { role: true },
+            },
           },
-        ],
-      },
-      include: { 
-        project: true,
+        },
         assignees: true,
       },
     });
 
     if (!existingTask) {
-      return res.status(403).json({
+      return res.status(404).json({
         success: false,
-        message: 'You do not have permission to update this task',
+        message: 'Task not found',
       });
     }
 
+    // Check permissions
+    const isOwner = existingTask.createdById === req.user!.id;
+    const isPersonalTask = !existingTask.projectId;
+
+    // Personal task: only owner can edit
+    if (isPersonalTask) {
+      if (!isOwner) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only the task owner can edit personal tasks',
+        });
+      }
+    } else {
+      // Project task: owner OR project manager OR workspace admin can edit
+      const projectMember = existingTask.project?.members?.[0];
+      const isProjectManager = projectMember?.role === 'MANAGER';
+      
+      const workspaceMember = existingTask.project?.workspace?.members?.[0];
+      const isWorkspaceAdmin = 
+        workspaceMember?.role === 'OWNER' || 
+        workspaceMember?.role === 'ADMIN';
+
+      const canEdit = isOwner || isProjectManager || isWorkspaceAdmin;
+
+      if (!canEdit) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only task owner, project managers, or workspace admins can edit this task',
+        });
+      }
+    }
+
+    // Rest of the update logic remains the same...
     const wasCompleted = status === 'COMPLETED' && existingTask.status !== 'COMPLETED';
 
     const task = await prisma.task.update({
@@ -797,11 +844,19 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
           include: { label: true },
         },
         project: {
-          select: { id: true, name: true, color: true },
+          select: { 
+            id: true, 
+            name: true, 
+            color: true,
+            workspace: {
+              select: { id: true, name: true }
+            }
+          },
         },
       },
     });
 
+    // Handle assignee updates
     if (assigneeIds !== undefined) {
       const existingAssigneeIds = existingTask.assignees.map(a => a.userId);
       const newAssigneeIds = assigneeIds as string[];
@@ -819,6 +874,7 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
         });
       }
 
+      // Notify new assignees
       for (const userId of addedAssignees) {
         if (userId !== req.user!.id) {
           try {
@@ -837,6 +893,7 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Handle label updates
     if (labelIds !== undefined) {
       await prisma.taskLabel.deleteMany({ where: { taskId: id } });
       if (labelIds.length > 0) {
@@ -849,6 +906,7 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Notify on completion
     if (wasCompleted) {
       try {
         await notifyTaskAssignees({
@@ -864,6 +922,7 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Log activity
     if (existingTask.project && existingTask.project.workspaceId) {
       await prisma.activity.create({
         data: {
@@ -900,33 +959,107 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// Also update updateTaskStatus with same permission logic
 export const updateTaskStatus = async (req: AuthRequest, res: Response) => {
   try {
+    const { id } = req.params;
     const { status } = req.body;
 
     if (!status) {
-      return res.status(400).json({ error: "Status is required" });
+      return res.status(400).json({ 
+        success: false,
+        message: "Status is required" 
+      });
     }
 
-    const existingTask = await prisma.task.findUnique({
-      where: { id: req.params.id },
-      select: { status: true, title: true },
+    // Fetch existing task with project and workspace info
+    const existingTask = await prisma.task.findFirst({
+      where: { id },
+      include: { 
+        project: {
+          include: {
+            workspace: {
+              include: {
+                members: {
+                  where: { userId: req.user!.id },
+                  select: { role: true },
+                },
+              },
+            },
+            members: {
+              where: { userId: req.user!.id },
+              select: { role: true },
+            },
+          },
+        },
+      },
     });
 
+    if (!existingTask) {
+      return res.status(404).json({
+        success: false,
+        message: 'Task not found',
+      });
+    }
+
+    // Check permissions
+    const isOwner = existingTask.createdById === req.user!.id;
+    const isPersonalTask = !existingTask.projectId;
+
+    if (isPersonalTask) {
+      if (!isOwner) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only the task owner can change status of personal tasks',
+        });
+      }
+    } else {
+      const projectMember = existingTask.project?.members?.[0];
+      const isProjectManager = projectMember?.role === 'MANAGER';
+      
+      const workspaceMember = existingTask.project?.workspace?.members?.[0];
+      const isWorkspaceAdmin = 
+        workspaceMember?.role === 'OWNER' || 
+        workspaceMember?.role === 'ADMIN';
+
+      const canChangeStatus = isOwner || isProjectManager || isWorkspaceAdmin;
+
+      if (!canChangeStatus) {
+        return res.status(403).json({
+          success: false,
+          message: 'Only task owner, project managers, or workspace admins can change task status',
+        });
+      }
+    }
+
+    // Update task
     const updated = await prisma.task.update({
-      where: { id: req.params.id },
+      where: { id },
       data: { 
         status,
         ...(status === 'COMPLETED' && existingTask?.status !== 'COMPLETED' && {
           completedAt: new Date(),
         }),
       },
+      include: {
+        createdBy: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        assignees: {
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, image: true },
+            },
+          },
+        },
+      },
     });
 
+    // Notify on completion
     if (status === 'COMPLETED' && existingTask?.status !== 'COMPLETED') {
       try {
         await notifyTaskAssignees({
-          taskId: req.params.id,
+          taskId: id,
           senderId: req.user!.id,
           type: 'TASK_COMPLETED',
           title: 'Task Completed',
@@ -945,10 +1078,13 @@ export const updateTaskStatus = async (req: AuthRequest, res: Response) => {
 
     res.json({ success: true, data: taskWithTimeInfo });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    console.error('Update task status error:', err);
+    res.status(500).json({ 
+      success: false,
+      message: err.message || 'Failed to update task status'
+    });
   }
 };
-
 export const deleteTask = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
