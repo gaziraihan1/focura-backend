@@ -8,6 +8,7 @@ import { initNotificationCrons } from "./cron/notification.cron.js";
 
 import projectRoutes from './routes/project.routes.js';
 import taskRoutes from './routes/task.routes.js';
+import dailyTaskRoutes from './routes/dailyTask.routes.js'; // NEW
 import fileRoutes from './routes/file.routes.js';
 import activityRoutes from './routes/activity.routes.js';
 import userRoutes from './routes/user.routes.js';
@@ -18,6 +19,7 @@ import workspaceRoutes from './routes/workspace.routes.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
+import { initDailyTaskCrons } from './cron/dailyTask.cron.js';
 
 dotenv.config();
 
@@ -29,7 +31,6 @@ const app: Application = express();
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// ✅ Better CORS configuration with multiple origins
 const allowedOrigins = [
   process.env.CLIENT_URL,
   'http://localhost:3000',
@@ -52,8 +53,6 @@ app.use(cors({
     'x-show-success-toast'
   ], 
 }));
-
-
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -85,6 +84,7 @@ app.use((req: Request, res: Response, next) => {
 });
 
 initNotificationCrons();
+initDailyTaskCrons(); // NEW: Start daily task cleanup cron
 
 app.get('/health', async (req: Request, res: Response) => {
   try {
@@ -129,10 +129,10 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
 });
 
 app.use('/api/notifications', notificationRoutes);
-
 app.use('/api/workspaces', authenticate, workspaceRoutes);
 app.use('/api/projects', authenticate, projectRoutes);
 app.use('/api/tasks', authenticate, taskRoutes);  
+app.use('/api/daily-tasks', authenticate, dailyTaskRoutes); // NEW: Daily task prioritization
 app.use('/api/files', authenticate, fileRoutes);
 app.use('/api/activities', authenticate, activityRoutes);
 app.use('/api/user', authenticate, userRoutes);
@@ -159,6 +159,8 @@ const server = app.listen(PORT, () => {
   console.log(`🔒 HTTPS Required: ${isProd}`);
   console.log(`🔑 Auth Method: Authorization Header (Bearer Token)`);
   console.log(`📡 SSE: /api/notifications/stream/:userId (query token auth)`);
+  console.log(`📅 Daily Tasks: /api/daily-tasks (PRIMARY/SECONDARY prioritization)`); // NEW
+  console.log(`⏰ Cron Jobs: Notifications + Daily Task Cleanup`); // NEW
   console.log('='.repeat(60));
 }).on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {

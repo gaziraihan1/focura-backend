@@ -221,6 +221,70 @@ export class WorkspaceService {
     
     return workspace;
   }
+
+  // Add this method to your WorkspaceService class in workspace.service.ts
+
+static async getById(id: string, userId: string) {
+  const workspace = await prisma.workspace.findFirst({
+    where: {
+      id,
+      OR: [
+        { ownerId: userId },
+        { isPublic: true },
+        {
+          members: {
+            some: { userId },
+          },
+        },
+      ],
+    },
+    include: {
+      owner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+        },
+      },
+      members: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+        orderBy: { joinedAt: 'asc' },
+      },
+      projects: {
+        take: 10,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          _count: {
+            select: { tasks: true },
+          },
+        },
+      },
+      _count: {
+        select: {
+          projects: true,
+          members: true,
+          labels: true,
+        },
+      },
+    },
+  });
+  
+  if (!workspace) {
+    throw new Error('Workspace not found');
+  }
+  
+  return workspace;
+}
   
   // Update workspace
   static async update(workspaceId: string, userId: string, data: any) {

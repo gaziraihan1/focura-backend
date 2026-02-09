@@ -52,6 +52,7 @@ model User {
   refresh_token          RefreshToken[]
   projectMembers         ProjectMember[]
   projectFavorites       ProjectFavorite[]
+  dailyTasks             DailyTask[]
 }
 
 enum UserPlan {
@@ -406,6 +407,7 @@ model Task {
   activities   Activity[]
   dependencies TaskDependency[] @relation("TaskDependsOn")
   blockedBy    TaskDependency[] @relation("TaskBlockedBy")
+  dailyTasks   DailyTask[]
   recurrence   TaskRecurrence?
 
   @@index([projectId])
@@ -498,6 +500,28 @@ model TaskRecurrence {
   endsAt   DateTime?
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model DailyTask {
+  id        String         @id @default(cuid())
+  userId    String
+  taskId    String
+  type      DailyTaskType
+  date      DateTime       // Stored as start of day (00:00:00)
+  addedAt   DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, taskId, date])
+  @@index([userId, date])
+  @@index([taskId])
+  @@index([date])
+}
+
+enum DailyTaskType {
+  PRIMARY
+  SECONDARY
 }
 
 enum RecurrencePattern {

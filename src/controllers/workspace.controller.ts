@@ -1,11 +1,8 @@
-// ============================================
-// src/controllers/workspace.controller.ts
-// ============================================
-
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import { WorkspaceService } from '../services/workspace.service.js';
 import { z } from 'zod';
+import { ActivityService } from '../services/activity.service.js';
 
 // Validation schemas
 const createWorkspaceSchema = z.object({
@@ -100,33 +97,43 @@ export class WorkspaceController {
     }
   }
   
-  static async getWorkspace(req: AuthRequest, res: Response) {
-    try {
-      const { slug } = req.params;
-      const userId = req.user!.id;
-      
-      const workspace = await WorkspaceService.getBySlug(slug, userId);
-      
-      return res.json({
-        success: true,
-        data: workspace,
-      });
-    } catch (error: any) {
-      console.error('Get workspace error:', error);
-      
-      if (error.message === 'Workspace not found' || error.message === 'Unauthorized') {
-        return res.status(404).json({
-          success: false,
-          message: 'Workspace not found',
-        });
-      }
-      
-      return res.status(500).json({
+  // controller - Update getWorkspace to handle both ID and slug
+static async getWorkspace(req: AuthRequest, res: Response) {
+  try {
+    const { slug } = req.params;
+    const userId = req.user!.id;
+    
+    let workspace;
+    
+    // Check if it's an ID (IDs start with 'cml' in your case)
+    const isId = slug.startsWith('cml') && slug.length > 20;
+    
+    if (isId) {
+      workspace = await WorkspaceService.getById(slug, userId);
+    } else {
+      workspace = await WorkspaceService.getBySlug(slug, userId);
+    }
+    
+    return res.json({
+      success: true,
+      data: workspace,
+    });
+  } catch (error: any) {
+    console.error('Get workspace error:', error);
+    
+    if (error.message === 'Workspace not found' || error.message === 'Unauthorized') {
+      return res.status(404).json({
         success: false,
-        message: 'Failed to fetch workspace',
+        message: 'Workspace not found',
       });
     }
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch workspace',
+    });
   }
+}
   
   static async updateWorkspace(req: AuthRequest, res: Response) {
     try {

@@ -335,6 +335,7 @@ CREATE TABLE "Label" (
     "name" TEXT NOT NULL,
     "color" TEXT NOT NULL DEFAULT '#667eea',
     "description" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "workspaceId" TEXT,
     "createdById" TEXT NOT NULL,
 
