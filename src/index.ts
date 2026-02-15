@@ -16,6 +16,8 @@ import uploadRoutes from './routes/upload.routes.js';
 import labelRoutes from './routes/label.routes.js';
 import notificationRoutes from './routes/notification.route.js';
 import workspaceRoutes from './routes/workspace.routes.js';
+import calendarRoutes from './routes/calendar.routes.js';
+import focusSessionRoutes from './routes/focusSession.routes.js'
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -138,6 +140,8 @@ app.use('/api/activities', authenticate, activityRoutes);
 app.use('/api/user', authenticate, userRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
 app.use('/api/labels', authenticate, labelRoutes);
+app.use('/api/calendar', authenticate, calendarRoutes);
+app.use('/api/focus-sessions',authenticate, focusSessionRoutes)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);

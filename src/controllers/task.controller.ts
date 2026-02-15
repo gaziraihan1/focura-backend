@@ -1,10 +1,24 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import { TaskService } from '../services/task.service.js';
+import { CalendarService } from '../services/calendar.service.js';
 
 export const getTasks = async (req: AuthRequest, res: Response) => {
   try {
-    const { type, workspaceId, projectId, status, priority, labelIds, assigneeId } = req.query;
+    const { 
+      type, 
+      workspaceId, 
+      projectId, 
+      status, 
+      priority, 
+      labelIds, 
+      assigneeId,
+      search,
+      page,
+      pageSize,
+      sortBy,
+      sortOrder,
+    } = req.query;
     
     console.log('📋 GET /api/tasks called');
     console.log('  User:', req.user?.email);
@@ -14,20 +28,32 @@ export const getTasks = async (req: AuthRequest, res: Response) => {
       ? (typeof labelIds === 'string' ? labelIds.split(',').filter(Boolean) : [])
       : undefined;
 
-    const tasks = await TaskService.getTasks({
-      userId: req.user!.id,
-      type: type as string | undefined,
-      workspaceId: workspaceId as string | undefined,
-      projectId: projectId as string | undefined,
-      status: status as string | undefined,
-      priority: priority as string | undefined,
-      labelIds: labelIdsArray,
-      assigneeId: assigneeId as string | undefined,
-    });
+    const result = await TaskService.getTasks(
+      {
+        userId: req.user!.id,
+        type: type as string | undefined,
+        workspaceId: workspaceId as string ,
+        projectId: projectId as string | undefined,
+        status: status as string | undefined,
+        priority: priority as string | undefined,
+        labelIds: labelIdsArray,
+        assigneeId: assigneeId as string | undefined,
+        search: search as string | undefined,
+      },
+      {
+        page: page ? parseInt(page as string) : undefined,
+        pageSize: pageSize ? parseInt(pageSize as string) : undefined,
+      },
+      {
+        sortBy: sortBy as any,
+        sortOrder: sortOrder as 'asc' | 'desc' | undefined,
+      }
+    );
 
     res.json({
       success: true,
-      data: tasks,
+      data: result.data,
+      pagination: result.pagination,
     });
   } catch (error) {
     console.error('Get tasks error:', error);
@@ -49,7 +75,7 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
 
     const stats = await TaskService.getTaskStats({
       userId: req.user!.id,
-      workspaceId: workspaceId as string | undefined,
+      workspaceId: workspaceId as string ,
       type: type as string | undefined,
     });
 
@@ -108,6 +134,14 @@ export const createTask = async (req: AuthRequest, res: Response) => {
       intent,
       createdById: req.user!.id,
     });
+
+    if(task.dueDate) {
+      CalendarService.recalculateAggregate(
+        req.user!.id,
+        task.workspaceId || undefined,
+        task.dueDate
+      ).catch(err => console.error('Calendar recalculation failed:', err));
+    }
 
     res.status(201).json({
       success: true,
@@ -193,6 +227,11 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
       intent,
     } = req.body;
 
+    const oldTask = await TaskService.getTaskById({
+      taskId: id,
+      userId: req.user!.id
+    })
+
     const task = await TaskService.updateTask({
       taskId: id,
       userId: req.user!.id,
@@ -213,6 +252,18 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
         intent,
       },
     });
+
+    const datesToRecalculate = new Set<Date>();
+    if (oldTask.dueDate) datesToRecalculate.add(oldTask.dueDate);
+    if (task.dueDate) datesToRecalculate.add(task.dueDate);
+    
+    for (const date of datesToRecalculate) {
+      CalendarService.recalculateAggregate(
+        req.user!.id,
+        task.workspaceId || undefined,
+        date
+      ).catch(err => console.error('Calendar recalculation failed:', err));
+    }
 
     res.json({
       success: true,
@@ -307,11 +358,23 @@ export const updateTaskStatus = async (req: AuthRequest, res: Response) => {
 export const deleteTask = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const task = await TaskService.getTaskById({
+      taskId: id,
+      userId: req.user!.id
+    })
 
     await TaskService.deleteTask({
       taskId: id,
       userId: req.user!.id,
     });
+
+    if(task.dueDate) {
+      CalendarService.recalculateAggregate(
+        req.user!.id,
+        task.workspaceId || undefined,
+        task.dueDate
+      ).catch(err => console.error("calendar recalculation failed", err))
+    }
 
     res.json({
       success: true,

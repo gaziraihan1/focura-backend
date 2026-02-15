@@ -53,6 +53,12 @@ model User {
   projectMembers         ProjectMember[]
   projectFavorites       ProjectFavorite[]
   dailyTasks             DailyTask[]
+  userCapacity           UserCapacity?
+  userWorkSchedule       UserWorkSchedule?
+  calendarAggregates     CalendarDayAggregate[]
+  goalCheckpoints        GoalCheckpoint[]
+  systemEvents           SystemCalendarEvent[]
+  burnoutSignals         BurnoutSignal[]
 }
 
 enum UserPlan {
@@ -163,6 +169,8 @@ model Workspace {
   files       File[]
   activities  Activity[]
   invitations WorkspaceInvitation[]
+  goalCheckpoints GoalCheckpoint[]
+  systemEvents    SystemCalendarEvent[]
 
   @@index([ownerId])
   @@index([slug])
@@ -409,6 +417,8 @@ model Task {
   blockedBy    TaskDependency[] @relation("TaskBlockedBy")
   dailyTasks   DailyTask[]
   recurrence   TaskRecurrence?
+  focusSessions FocusSession[]
+
 
   @@index([projectId])
   @@index([createdById])
@@ -531,6 +541,148 @@ enum RecurrencePattern {
   CUSTOM
 }
 
+
+// ============================================
+// TIME INTELLIGENCE & CALENDAR SYSTEM
+// ============================================
+
+model UserCapacity {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+
+  weeklyHours        Int   @default(40)
+  dailyCapacityHours Int   @default(8)
+  deepWorkHours      Int   @default(4)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserWorkSchedule {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  workDays Json // ["MON","TUE","WED","THU","FRI"]
+
+  workStartHour Int     @default(9)
+  workEndHour   Int     @default(17)
+  timezone      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CalendarDayAggregate {
+  id     String   @id @default(cuid())
+  userId String
+  date   DateTime // stored as 00:00:00 UTC normalized
+
+  // Task Metrics
+  totalTasks     Int @default(0)
+  dueTasks       Int @default(0)
+  criticalTasks  Int @default(0)
+  milestoneCount Int @default(0)
+
+  // Time Metrics
+  plannedHours Float @default(0)
+  actualHours  Float @default(0)
+  focusMinutes Int   @default(0)
+
+  // Load Metrics
+  workloadScore Float   @default(0)
+  overCapacity  Boolean @default(false)
+
+  // Flags
+  hasPrimaryFocus Boolean @default(false)
+  isReviewDay     Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model GoalCheckpoint {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+
+  title      String
+  type       GoalType
+  targetDate DateTime
+  completed  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, targetDate])
+}
+
+enum GoalType {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  KPI
+}
+
+model SystemCalendarEvent {
+  id String @id @default(cuid())
+
+  userId      String?
+  workspaceId String?
+
+  title     String
+  type      SystemEventType
+  date      DateTime
+  recurring Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([date])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+enum SystemEventType {
+  WEEKLY_RESET
+  MONTHLY_REVIEW
+  SPRINT_END
+  BILLING
+  WORKSPACE_REVIEW
+}
+
+model BurnoutSignal {
+  id     String @id @default(cuid())
+  userId String
+
+  weekStart DateTime
+
+  consecutiveHeavyDays Int
+  avgDailyLoad         Float
+  riskLevel            BurnoutRisk
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStart])
+}
+
+enum BurnoutRisk {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
 // ============================================
 // LABELS & TAGS
 // ============================================
@@ -646,9 +798,11 @@ model FocusSession {
   userId String
   taskId String?
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([startedAt])
+  @@index([taskId])
 }
 
 enum FocusType {

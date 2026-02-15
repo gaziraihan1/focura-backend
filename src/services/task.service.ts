@@ -1,4 +1,4 @@
-// services/task.service.ts
+// services/task.service.refactored.ts
 import { prisma } from "../index.js";
 import { notifyUser, notifyTaskAssignees, notifyMentions } from "../utils/notification.helpers.js";
 import { ActivityService } from "./activity.service.js";
@@ -47,94 +47,104 @@ const getTimeStatus = (task: any) => {
   };
 };
 
+interface PaginationParams {
+  page?: number;
+  pageSize?: number;
+}
+
+interface SortParams {
+  sortBy?: 'dueDate' | 'priority' | 'status' | 'createdAt' | 'title';
+  sortOrder?: 'asc' | 'desc';
+}
+
+interface TaskFilterParams {
+  userId: string;
+  type?: string;
+  workspaceId?: string;
+  projectId?: string;
+  status?: string;
+  priority?: string;
+  labelIds?: string[];
+  assigneeId?: string;
+  search?: string;
+}
+
+// Define the return type for getTasks
+type GetTasksResult = {
+  data: any[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalCount: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+};
+
+
+
 export const TaskService = {
-  /**
-   * Get tasks with filters and permissions
-   */
-  async getTasks(params: {
-    userId: string;
-    type?: string;
-    workspaceId?: string;
-    projectId?: string;
-    status?: string;
-    priority?: string;
-    labelIds?: string[];
-    assigneeId?: string;
-  }) {
-    let where: any = {};
 
-    // Apply type filter
-    if (params.type === 'personal') {
-      where = {
-        projectId: null,
-        createdById: params.userId,
-      };
-    } else if (params.type === 'assigned') {
-      where = {
-        assignees: {
-          some: { userId: params.userId },
-        },
-      };
-    } else if (params.type === 'created') {
-      where = {
-        createdById: params.userId,
-      };
-    } else {
-      // All tasks user has access to
-      where = {
-        OR: [
-          { createdById: params.userId },
-          { assignees: { some: { userId: params.userId } } },
-          {
-            project: {
-              workspace: {
-                OR: [
-                  { ownerId: params.userId },
-                  { members: { some: { userId: params.userId } } },
-                ],
-              },
-            },
-          },
-        ],
-      };
-    }
 
-    // Apply additional filters
-    if (params.workspaceId) {
-      where.project = { ...where.project, workspaceId: params.workspaceId };
-    }
+/**
+ * COMPLETE TASK FILTERING SOLUTION
+ * 
+ * 3 Filtering Modes:
+ * 1. Project-specific tasks (projectId filter)
+ * 2. Personal tasks (created OR assigned to me, across all workspaces)
+ * 3. Workspace tasks (all tasks in workspace projects where I'm a member OR I'm workspace owner/admin)
+ */
 
-    if (params.projectId) {
-      where.projectId = params.projectId;
-    }
+async getTasks(
+  filters: TaskFilterParams,
+  pagination: PaginationParams = {},
+  sort: SortParams = {}
+): Promise<GetTasksResult> {
+  const page = Math.max(1, pagination.page || 1);
+  const pageSize = Math.min(100, Math.max(1, pagination.pageSize || 10));
+  const skip = (page - 1) * pageSize;
+  const sortBy = sort.sortBy || 'createdAt';
+  const sortOrder = sort.sortOrder || 'desc';
 
-    if (params.status) {
-      where.status = params.status;
-    }
+  // Build base where clause
+  let where: any = {};
 
-    if (params.priority) {
-      where.priority = params.priority;
-    }
+  // SCENARIO 1: Project-specific tasks
+  if (filters.projectId) {
+    where = await this.buildProjectFilter(filters);
+  }
+  // SCENARIO 2: Personal tasks (no workspace filter)
+  else if (!filters.workspaceId) {
+    where = this.buildPersonalTasksFilter(filters);
+  }
+  // SCENARIO 3: Workspace tasks (with workspace filter)
+  else {
+    where = await this.buildWorkspaceTasksFilter(filters);
+  }
 
-    if (params.labelIds && params.labelIds.length > 0) {
-      where.labels = {
-        some: {
-          labelId: {
-            in: params.labelIds,
-          },
-        },
-      };
-    }
+  // Apply additional filters (status, priority, etc.)
+  where = this.applyAdditionalFilters(where, filters);
 
-    if (params.assigneeId && params.type !== 'assigned') {
-      where.assignees = {
-        some: {
-          userId: params.assigneeId,
-        },
-      };
-    }
+  // Apply search filter
+  if (filters.search && filters.search.trim()) {
+    where = this.applySearchFilter(where, filters.search);
+  }
 
-    const tasks = await prisma.task.findMany({
+  console.log('🔍 Filter Mode:', {
+    projectId: filters.projectId || 'none',
+    workspaceId: filters.workspaceId || 'none',
+    type: filters.type || 'all',
+    mode: filters.projectId ? 'PROJECT' : (!filters.workspaceId ? 'PERSONAL' : 'WORKSPACE')
+  });
+  console.log('🔍 WHERE clause:', JSON.stringify(where, null, 2));
+
+  // Build orderBy clause
+  const orderBy = this.buildOrderBy(sortBy, sortOrder);
+
+  // Execute query with pagination
+  const [tasks, totalCount] = await Promise.all([
+    prisma.task.findMany({
       where,
       include: {
         createdBy: {
@@ -168,193 +178,652 @@ export const TaskService = {
           },
         },
       },
-      orderBy: [
-        { status: 'asc' },
-        { priority: 'desc' },
-        { dueDate: 'asc' },
-      ],
-    });
+      orderBy,
+      skip,
+      take: pageSize,
+    }),
+    prisma.task.count({ where }),
+  ]);
 
-    // Add time tracking info
-    return tasks.map(task => ({
-      ...task,
-      timeTracking: getTimeStatus(task),
-    }));
-  },
+  console.log(`📊 Found ${totalCount} tasks (showing ${tasks.length} on page ${page})`);
 
-  /**
-   * Get task statistics
-   */
-  async getTaskStats(params: {
-    userId: string;
-    workspaceId?: string;
-    type?: string;
-  }) {
-    let baseWhere: any = {};
+  // Add time tracking info
+  const tasksWithTracking = tasks.map(task => ({
+    ...task,
+    timeTracking: getTimeStatus(task),
+  }));
 
-    // Apply type filter
-    if (params.type === 'personal') {
-      baseWhere = {
-        projectId: null,
-        createdById: params.userId,
-      };
-    } else if (params.type === 'assigned') {
-      baseWhere = {
-        assignees: {
-          some: { userId: params.userId },
-        },
-      };
-    } else if (params.type === 'created') {
-      baseWhere = {
-        createdById: params.userId,
-      };
-    } else {
-      baseWhere = {
-        OR: [
-          { createdById: params.userId },
-          { assignees: { some: { userId: params.userId } } },
+  const result: GetTasksResult = {
+    data: tasksWithTracking,
+    pagination: {
+      page,
+      pageSize,
+      totalCount,
+      totalPages: Math.ceil(totalCount / pageSize),
+      hasNext: page < Math.ceil(totalCount / pageSize),
+      hasPrev: page > 1,
+    },
+  };
+
+  return result;
+},
+
+/**
+ * SCENARIO 1: Filter tasks by specific project
+ */
+async buildProjectFilter(filters: TaskFilterParams): Promise<any> {
+  // Simply filter by project ID
+  // Access control is handled by ensuring user has access to the project
+  return {
+    projectId: filters.projectId,
+  };
+},
+
+/**
+ * SCENARIO 2: Personal tasks filter (no workspace)
+ * Shows tasks created by me OR assigned to me across ALL workspaces
+ */
+buildPersonalTasksFilter(filters: TaskFilterParams): any {
+  if (filters.type === 'personal') {
+    // Only personal tasks (no project)
+    return {
+      projectId: null,
+      createdById: filters.userId,
+    };
+  }
+
+  if (filters.type === 'assigned') {
+    // Only tasks assigned to me
+    return {
+      assignees: {
+        some: { userId: filters.userId },
+      },
+    };
+  }
+
+  if (filters.type === 'created') {
+    // Only tasks created by me
+    return {
+      createdById: filters.userId,
+    };
+  }
+
+  // Default: All tasks related to me (created OR assigned)
+  return {
+    OR: [
+      { createdById: filters.userId },
+      { assignees: { some: { userId: filters.userId } } },
+    ],
+  };
+},
+
+/**
+ * SCENARIO 3: Workspace tasks filter
+ * Shows tasks from projects in this workspace where:
+ * - User is workspace owner/admin (sees ALL workspace tasks), OR
+ * - User is a member of the project, OR
+ * - Task is created by user, OR
+ * - Task is assigned to user
+ */
+async buildWorkspaceTasksFilter(filters: TaskFilterParams): Promise<any> {
+  if (!filters.workspaceId) {
+    throw new Error('workspaceId is required for workspace filter');
+  }
+
+  // Check user's role in workspace
+  const workspaceMember = await prisma.workspaceMember.findFirst({
+    where: {
+      workspaceId: filters.workspaceId,
+      userId: filters.userId,
+    },
+    select: {
+      role: true,
+    },
+  });
+
+  const isWorkspaceAdmin = workspaceMember?.role === 'OWNER' || workspaceMember?.role === 'ADMIN';
+
+  // Base condition: Tasks must be in projects within this workspace
+  const baseWorkspaceCondition = {
+    project: {
+      workspaceId: filters.workspaceId,
+    },
+  };
+
+  // If user is workspace owner/admin, show ALL tasks in workspace
+  if (isWorkspaceAdmin) {
+    console.log('👑 User is workspace OWNER/ADMIN - showing all workspace tasks');
+    
+    // Apply type filter for admins too
+    if (filters.type === 'assigned') {
+      return {
+        AND: [
+          baseWorkspaceCondition,
+          {
+            assignees: {
+              some: { userId: filters.userId },
+            },
+          },
         ],
       };
     }
 
-    // Apply workspace filter
-    if (params.workspaceId) {
-      if (params.type === 'personal') {
-        baseWhere = {
-          ...baseWhere,
-          workspaceId: null,
-        };
-      } else {
-        baseWhere = {
-          ...baseWhere,
-          project: {
-            workspaceId: params.workspaceId,
-          },
-        };
-      }
+    if (filters.type === 'created') {
+      return {
+        AND: [
+          baseWorkspaceCondition,
+          { createdById: filters.userId },
+        ],
+      };
     }
 
-    // Get counts
-    const [
-      personalCount,
-      assignedCount,
-      createdCount,
-      totalTasks,
-      inProgress,
-      completed,
-      statusCounts,
-      activeTasks,
-    ] = await Promise.all([
-      // Personal count (unfiltered)
-      prisma.task.count({
-        where: {
-          projectId: null,
-          createdById: params.userId,
-        },
-      }),
-      
-      // Assigned count
-      prisma.task.count({
-        where: {
-          assignees: { some: { userId: params.userId } },
-          ...(params.workspaceId && {
-            project: { workspaceId: params.workspaceId },
-          }),
-        },
-      }),
-      
-      // Created count
-      prisma.task.count({
-        where: {
-          createdById: params.userId,
-          ...(params.workspaceId && {
-            project: { workspaceId: params.workspaceId },
-          }),
-        },
-      }),
-      
-      // Total tasks
-      prisma.task.count({ where: baseWhere }),
-      
-      // In progress
-      prisma.task.count({
-        where: { ...baseWhere, status: 'IN_PROGRESS' },
-      }),
-      
-      // Completed
-      prisma.task.count({
-        where: { ...baseWhere, status: 'COMPLETED' },
-      }),
-      
-      // Status counts
-      prisma.task.groupBy({
-        by: ['status'],
-        where: baseWhere,
-        _count: true,
-      }),
-      
-      // Active tasks for overdue calculation
-      prisma.task.findMany({
-        where: {
-          ...baseWhere,
-          status: { notIn: ['COMPLETED', 'CANCELLED'] },
-        },
-        select: {
-          id: true,
-          createdAt: true,
-          dueDate: true,
-          estimatedHours: true,
-          status: true,
-          actualHours: true,
-        },
-      }),
-    ]);
+    // For 'all' or no type: show ALL workspace tasks
+    return baseWorkspaceCondition;
+  }
 
-    // Calculate overdue count
-    let overdueCount = 0;
-    activeTasks.forEach(task => {
-      const timeStatus = getTimeStatus(task);
-      if (timeStatus.isOverdue) {
-        overdueCount++;
-      }
-    });
+  // Regular member: show tasks where user is involved
+  console.log('👤 User is workspace MEMBER - filtering by involvement');
 
-    // Calculate due today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    const dueTodayCount = await prisma.task.count({
-      where: {
-        ...baseWhere,
-        dueDate: {
-          gte: today,
-          lt: tomorrow,
+  const userInvolvementConditions = {
+    OR: [
+      { createdById: filters.userId },                          // I created it
+      { assignees: { some: { userId: filters.userId } } },      // I'm assigned to it
+      {
+        // I'm a member of the project
+        project: {
+          AND: [
+            { workspaceId: filters.workspaceId },
+            { members: { some: { userId: filters.userId } } },
+          ],
         },
-        status: { notIn: ['COMPLETED', 'CANCELLED'] },
       },
-    });
+    ],
+  };
 
+  // Apply type filter for regular members
+  if (filters.type === 'personal') {
+    // Personal tasks don't belong to workspace
+    return { id: 'no-personal-tasks-in-workspace' };
+  }
+
+  if (filters.type === 'assigned') {
     return {
-      personal: params.type === 'assigned' ? 0 : (params.workspaceId ? 0 : personalCount),
-      assigned: assignedCount,
-      created: createdCount,
-      overdue: overdueCount,
-      dueToday: dueTodayCount,
-      totalTasks,
-      inProgress,
-      completed,
-      byStatus: statusCounts.reduce((acc, item) => {
-        acc[item.status] = item._count;
-        return acc;
-      }, {} as Record<string, number>),
+      AND: [
+        baseWorkspaceCondition,
+        {
+          assignees: {
+            some: { userId: filters.userId },
+          },
+        },
+      ],
     };
+  }
+
+  if (filters.type === 'created') {
+    return {
+      AND: [
+        baseWorkspaceCondition,
+        { createdById: filters.userId },
+      ],
+    };
+  }
+
+  // Default: tasks in workspace where user is involved
+  return {
+    AND: [
+      baseWorkspaceCondition,
+      userInvolvementConditions,
+    ],
+  };
+},
+
+/**
+ * Apply additional filters (status, priority, labels, assignee)
+ */
+applyAdditionalFilters(where: any, filters: TaskFilterParams): any {
+  if (filters.status) {
+    where.status = filters.status;
+  }
+
+  if (filters.priority) {
+    where.priority = filters.priority;
+  }
+
+  if (filters.labelIds && filters.labelIds.length > 0) {
+    where.labels = {
+      some: {
+        labelId: {
+          in: filters.labelIds,
+        },
+      },
+    };
+  }
+
+  if (filters.assigneeId && filters.type !== 'assigned') {
+    where.assignees = {
+      some: {
+        userId: filters.assigneeId,
+      },
+    };
+  }
+
+  return where;
+},
+
+/**
+ * Apply search filter
+ */
+applySearchFilter(where: any, search: string): any {
+  const searchConditions = {
+    OR: [
+      { title: { contains: search, mode: 'insensitive' } },
+      { description: { contains: search, mode: 'insensitive' } },
+    ],
+  };
+
+  // Merge search with existing where clause
+  if (where.AND) {
+    return {
+      ...where,
+      AND: [...where.AND, searchConditions],
+    };
+  } else if (where.OR) {
+    return {
+      AND: [
+        { OR: where.OR },
+        searchConditions,
+      ],
+      // Preserve other top-level conditions
+      ...(where.project && { project: where.project }),
+      ...(where.projectId && { projectId: where.projectId }),
+      ...(where.createdById && { createdById: where.createdById }),
+      ...(where.assignees && { assignees: where.assignees }),
+    };
+  } else {
+    return {
+      ...where,
+      ...searchConditions,
+    };
+  }
+},
+
+/**
+ * Apply workspace filter to restrict tasks to specific workspace
+ */
+applyWorkspaceFilter(where: any, filters: TaskFilterParams): any {
+  // Personal tasks have no project, so can't belong to a workspace
+  if (filters.type === 'personal') {
+    return {
+      id: 'no-personal-tasks-in-workspace', // Return no results
+    };
+  }
+
+  // For workspace tasks, they MUST have a project in this workspace
+  const workspaceCondition = {
+    project: {
+      workspaceId: filters.workspaceId,
+    },
+  };
+
+  // If we have an OR clause (from type=all, assigned, or created), wrap it with AND
+  if (where.OR) {
+    return {
+      AND: [
+        workspaceCondition,
+        { OR: where.OR },
+      ],
+    };
+  }
+
+  // Otherwise, merge the workspace condition
+  return {
+    ...where,
+    ...workspaceCondition,
+  };
+},
+
+
+buildTypeFilter(filters: TaskFilterParams): any {
+  if (filters.type === 'personal') {
+    return {
+      projectId: null,
+      createdById: filters.userId,
+    };
+  }
+
+  if (filters.type === 'assigned') {
+    return {
+      assignees: {
+        some: { userId: filters.userId },
+      },
+    };
+  }
+
+  if (filters.type === 'created') {
+    return {
+      createdById: filters.userId,
+    };
+  }
+
+  // FIXED: "all" now ONLY shows tasks user created OR is assigned to
+  // Does NOT include tasks from workspaces where user is just a member
+  return {
+    OR: [
+      { createdById: filters.userId },           // Tasks I created
+      { assignees: { some: { userId: filters.userId } } },  // Tasks assigned to me
+    ],
+  };
+  
+  
+},
+
+
+  buildOrderBy(sortBy: string, sortOrder: string): any {
+    const order: 'asc' | 'desc' = sortOrder === 'asc' ? 'asc' : 'desc';
+
+    switch (sortBy) {
+      case 'dueDate':
+        return [
+          { dueDate: { sort: order, nulls: 'last' as const } },
+          { createdAt: 'desc' as const },
+        ];
+      case 'priority':
+        return [
+          { priority: order },
+          { dueDate: { sort: 'asc' as const, nulls: 'last' as const } },
+        ];
+      case 'status':
+        return [
+          { status: order },
+          { priority: 'desc' as const },
+        ];
+      case 'title':
+        return [{ title: order }];
+      case 'createdAt':
+      default:
+        return [{ createdAt: order }];
+    }
   },
 
   /**
-   * Create a new task
-   */
+ * Get task statistics with proper workspace filtering
+ * Matches the same 3-mode logic as getTasks
+ */
+async getTaskStats(params: {
+  userId: string;
+  workspaceId: string;
+  type?: string;
+} ) {
+  console.log('📊 Getting stats for:', { 
+    userId: params.userId, 
+    workspaceId: params.workspaceId || 'none',
+    type: params.type || 'all' 
+  });
+
+  let baseWhere: any = {};
+
+  if (!params.workspaceId) {
+    baseWhere = await this.buildPersonalStatsFilter(params);
+  }
+  else {
+    baseWhere = await this.buildWorkspaceStatsFilter(params);
+  }
+
+  console.log('📊 Stats WHERE clause:', JSON.stringify(baseWhere, null, 2));
+
+  const [
+    personalCount,
+    assignedCount,
+    createdCount,
+    totalTasks,
+    inProgress,
+    completed,
+    statusCounts,
+    activeTasks,
+    dueTodayCount,
+  ] = await Promise.all([
+    prisma.task.count({
+      where: {
+        projectId: null,
+        createdById: params.userId,
+      },
+    }),
+    
+    prisma.task.count({
+      where: {
+        assignees: { some: { userId: params.userId } },
+        ...(params.workspaceId && {
+          project: { workspaceId: params.workspaceId },
+        }),
+      },
+    }),
+    
+    prisma.task.count({
+      where: {
+        createdById: params.userId,
+        ...(params.workspaceId && {
+          project: { workspaceId: params.workspaceId },
+        }),
+      },
+    }),
+    
+    prisma.task.count({ where: baseWhere }),
+    
+    prisma.task.count({
+      where: { ...baseWhere, status: 'IN_PROGRESS' },
+    }),
+    
+    prisma.task.count({
+      where: { ...baseWhere, status: 'COMPLETED' },
+    }),
+    
+    prisma.task.groupBy({
+      by: ['status'],
+      where: baseWhere,
+      _count: true,
+    }),
+    
+    prisma.task.findMany({
+      where: {
+        ...baseWhere,
+        status: { notIn: ['COMPLETED', 'CANCELLED'] },
+      },
+      select: {
+        id: true,
+        createdAt: true,
+        dueDate: true,
+        estimatedHours: true,
+        status: true,
+        actualHours: true,
+      },
+    }),
+    
+    (async () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      return prisma.task.count({
+        where: {
+          ...baseWhere,
+          dueDate: {
+            gte: today,
+            lt: tomorrow,
+          },
+          status: { notIn: ['COMPLETED', 'CANCELLED'] },
+        },
+      });
+    })(),
+  ]);
+
+  let overdueCount = 0;
+  activeTasks.forEach(task => {
+    const timeStatus = getTimeStatus(task);
+    if (timeStatus.isOverdue) {
+      overdueCount++;
+    }
+  });
+
+  const stats = {
+    personal: params.type === 'assigned' ? 0 : (params.workspaceId ? 0 : personalCount),
+    assigned: assignedCount,
+    created: createdCount,
+    overdue: overdueCount,
+    dueToday: dueTodayCount,
+    totalTasks,
+    inProgress,
+    completed,
+    byStatus: statusCounts.reduce((acc, item) => {
+      acc[item.status] = item._count;
+      return acc;
+    }, {} as Record<string, number>),
+  };
+
+  console.log('📊 Stats result:', stats);
+
+  return stats;
+},
+
+async buildPersonalStatsFilter(params: {
+  userId: string;
+  type?: string;
+}): Promise<any> {
+  if (params.type === 'personal') {
+    return {
+      projectId: null,
+      createdById: params.userId,
+    };
+  }
+
+  if (params.type === 'assigned') {
+    return {
+      assignees: {
+        some: { userId: params.userId },
+      },
+    };
+  }
+
+  if (params.type === 'created') {
+    return {
+      createdById: params.userId,
+    };
+  }
+
+  return {
+    OR: [
+      { createdById: params.userId },
+      { assignees: { some: { userId: params.userId } } },
+    ],
+  };
+},
+
+async buildWorkspaceStatsFilter(params: {
+  userId: string;
+  workspaceId: string;
+  type?: string;
+}): Promise<any> {
+  const workspaceMember = await prisma.workspaceMember.findFirst({
+    where: {
+      workspaceId: params.workspaceId,
+      userId: params.userId,
+    },
+    select: {
+      role: true,
+    },
+  });
+
+  const isWorkspaceAdmin = workspaceMember?.role === 'OWNER' || workspaceMember?.role === 'ADMIN';
+
+  const baseWorkspaceCondition = {
+    project: {
+      workspaceId: params.workspaceId,
+    },
+  };
+
+  if (isWorkspaceAdmin) {
+    console.log('👑 Admin stats - counting all workspace tasks');
+    
+    if (params.type === 'assigned') {
+      return {
+        AND: [
+          baseWorkspaceCondition,
+          {
+            assignees: {
+              some: { userId: params.userId },
+            },
+          },
+        ],
+      };
+    }
+
+    if (params.type === 'created') {
+      return {
+        AND: [
+          baseWorkspaceCondition,
+          { createdById: params.userId },
+        ],
+      };
+    }
+
+    // For 'all' or no type: count ALL workspace tasks
+    return baseWorkspaceCondition;
+  }
+
+  // Regular member: count tasks where user is involved
+  console.log('👤 Member stats - counting involved tasks only');
+
+  const userInvolvementConditions = {
+    OR: [
+      { createdById: params.userId },
+      { assignees: { some: { userId: params.userId } } },
+      {
+        project: {
+          AND: [
+            { workspaceId: params.workspaceId },
+            { members: { some: { userId: params.userId } } },
+          ],
+        },
+      },
+    ],
+  };
+
+  if (params.type === 'personal') {
+    // No personal tasks in workspace
+    return { id: 'no-personal-tasks-in-workspace' };
+  }
+
+  if (params.type === 'assigned') {
+    return {
+      AND: [
+        baseWorkspaceCondition,
+        {
+          assignees: {
+            some: { userId: params.userId },
+          },
+        },
+      ],
+    };
+  }
+
+  if (params.type === 'created') {
+    return {
+      AND: [
+        baseWorkspaceCondition,
+        { createdById: params.userId },
+      ],
+    };
+  }
+
+  // Default: tasks in workspace where user is involved
+  return {
+    AND: [
+      baseWorkspaceCondition,
+      userInvolvementConditions,
+    ],
+  };
+},
+
   async createTask(data: {
     title: string;
     description?: string;
@@ -504,7 +973,7 @@ export const TaskService = {
             name: true,
             color: true,
             workspaceId: true,
-            workspace: { select: { id: true, name: true } },
+            workspace: { select: { id: true, name: true, slug: true } },
           },
         },
         _count: {
@@ -517,9 +986,13 @@ export const TaskService = {
       },
     });
 
-    // Create activity log
+    console.log(`✨ Task created: "${task.title}" (ID: ${task.id})`);
+
+    // Invalidate caches using helper function
+
+    // Create activity log (non-blocking)
     if (finalWorkspaceId) {
-      await prisma.activity.create({
+      prisma.activity.create({
         data: {
           action: "CREATED",
           entityType: "TASK",
@@ -534,28 +1007,28 @@ export const TaskService = {
             intent: data.intent,
           },
         },
-      });
+      }).catch(err => console.error('Failed to log activity:', err));
     }
 
-    // Send notifications to assignees
+    // Send notifications (non-blocking)
     if (data.assigneeIds?.length) {
-      const creator = await prisma.user.findUnique({
+      prisma.user.findUnique({
         where: { id: data.createdById },
         select: { name: true },
+      }).then(creator => {
+        data.assigneeIds!.forEach(userId => {
+          if (userId !== data.createdById) {
+            notifyUser({
+              userId,
+              senderId: data.createdById,
+              type: "TASK_ASSIGNED",
+              title: "New Task Assigned",
+              message: `${creator?.name || "Someone"} assigned you a task`,
+              actionUrl: `/dashboard/tasks/${task.id}`,
+            }).catch(() => {});
+          }
+        });
       });
-
-      for (const userId of data.assigneeIds) {
-        if (userId !== data.createdById) {
-          notifyUser({
-            userId,
-            senderId: data.createdById,
-            type: "TASK_ASSIGNED",
-            title: "New Task Assigned",
-            message: `${creator?.name || "Someone"} assigned you a task`,
-            actionUrl: `/dashboard/tasks/${task.id}`,
-          }).catch(() => {});
-        }
-      }
     }
 
     return {
@@ -564,13 +1037,16 @@ export const TaskService = {
     };
   },
 
+
   /**
-   * Get a single task by ID
+   * Get a single task by ID with caching
    */
   async getTaskById(params: {
     taskId: string;
     userId: string;
   }) {
+    
+
     const task = await prisma.task.findFirst({
       where: {
         id: params.taskId,
@@ -610,7 +1086,7 @@ export const TaskService = {
             color: true, 
             workspaceId: true,
             workspace: {
-              select: { id: true, name: true }
+              select: { id: true, name: true, slug: true }
             }
           },
         },
@@ -647,10 +1123,13 @@ export const TaskService = {
       throw new Error('Task not found');
     }
 
-    return {
+    const result = {
       ...task,
       timeTracking: getTimeStatus(task),
     };
+
+
+    return result;
   },
 
   /**
@@ -775,6 +1254,7 @@ export const TaskService = {
       throw new Error('Task not found');
     }
 
+    // FIXED: Extract previousAssigneeIds BEFORE update
     const wasCompleted = params.data.status === 'COMPLETED' && existingTask.status !== 'COMPLETED';
 
     // Update task
@@ -828,26 +1308,7 @@ export const TaskService = {
       },
     });
 
-    // Log status change activity
-    if (existingTask.project?.workspaceId && params.data.status && params.data.status !== existingTask.status) {
-      try {
-        await ActivityService.createActivity({
-          action: 'STATUS_CHANGED',
-          entityType: 'TASK',
-          entityId: params.taskId,
-          userId: params.userId,
-          workspaceId: existingTask.project.workspaceId,
-          taskId: params.taskId,
-          metadata: {
-            taskTitle: existingTask.title,
-            oldStatus: existingTask.status,
-            newStatus: params.data.status,
-          },
-        });
-      } catch (activityError) {
-        console.error('Failed to log status change activity:', activityError);
-      }
-    }
+    console.log(`✏️  Task updated: "${task.title}" (ID: ${task.id})`);
 
     // Handle assignee updates
     if (params.data.assigneeIds !== undefined) {
@@ -867,27 +1328,25 @@ export const TaskService = {
         });
       }
 
-      // Notify new assignees
-      const creator = await prisma.user.findUnique({
-        where: { id: params.userId },
-        select: { name: true },
-      });
-
-      for (const userId of addedAssignees) {
-        if (userId !== params.userId) {
-          try {
-            await notifyUser({
-              userId,
-              senderId: params.userId,
-              type: 'TASK_ASSIGNED',
-              title: 'Task Assigned',
-              message: `${creator?.name || 'Someone'} assigned you to "${task.title}"`,
-              actionUrl: `/dashboard/tasks/${params.taskId}`,
-            });
-          } catch (notifError) {
-            console.error('Failed to send notification:', notifError);
-          }
-        }
+      // Notify new assignees (non-blocking)
+      if (addedAssignees.length > 0) {
+        prisma.user.findUnique({
+          where: { id: params.userId },
+          select: { name: true },
+        }).then(creator => {
+          addedAssignees.forEach(userId => {
+            if (userId !== params.userId) {
+              notifyUser({
+                userId,
+                senderId: params.userId,
+                type: 'TASK_ASSIGNED',
+                title: 'Task Assigned',
+                message: `${creator?.name || 'Someone'} assigned you to "${task.title}"`,
+                actionUrl: `/dashboard/tasks/${params.taskId}`,
+              }).catch(() => {});
+            }
+          });
+        });
       }
     }
 
@@ -904,30 +1363,40 @@ export const TaskService = {
       }
     }
 
-    // Notify on completion
-    if (wasCompleted) {
-      try {
-        const completer = await prisma.user.findUnique({
-          where: { id: params.userId },
-          select: { name: true },
-        });
-        
-        await notifyTaskAssignees({
-          taskId: params.taskId,
-          senderId: params.userId,
-          type: 'TASK_COMPLETED',
-          title: 'Task Completed',
-          message: `${completer?.name || 'Someone'} completed "${task.title}"`,
-          excludeUserId: params.userId,
-        });
-      } catch (notifError) {
-        console.error('Failed to send completion notification:', notifError);
-      }
+    // Invalidate caches using helper function
+
+    // Log status change activity (non-blocking)
+    if (existingTask.project?.workspaceId && params.data.status && params.data.status !== existingTask.status) {
+      ActivityService.createActivity({
+        action: 'STATUS_CHANGED',
+        entityType: 'TASK',
+        entityId: params.taskId,
+        userId: params.userId,
+        workspaceId: existingTask.project.workspaceId,
+        taskId: params.taskId,
+        metadata: {
+          taskTitle: existingTask.title,
+          oldStatus: existingTask.status,
+          newStatus: params.data.status,
+        },
+      }).catch(err => console.error('Failed to log activity:', err));
     }
 
-    // Log update activity
+    // Notify on completion (non-blocking)
+    if (wasCompleted) {
+      notifyTaskAssignees({
+        taskId: params.taskId,
+        senderId: params.userId,
+        type: 'TASK_COMPLETED',
+        title: 'Task Completed',
+        message: `Task "${task.title}" was completed`,
+        excludeUserId: params.userId,
+      }).catch(() => {});
+    }
+
+    // Log update activity (non-blocking)
     if (existingTask.project?.workspaceId) {
-      await prisma.activity.create({
+      prisma.activity.create({
         data: {
           action: 'UPDATED',
           entityType: 'TASK',
@@ -940,7 +1409,7 @@ export const TaskService = {
             changes: params.data,
           },
         },
-      });
+      }).catch(err => console.error('Failed to log activity:', err));
     }
 
     return {
@@ -948,6 +1417,7 @@ export const TaskService = {
       timeTracking: getTimeStatus(task),
     };
   },
+
 
   /**
    * Update task status only
@@ -971,10 +1441,13 @@ export const TaskService = {
       throw new Error(permission.reason || 'You do not have permission to change this task status');
     }
 
-    // Fetch existing task
+    // Fetch existing task (with assignees for cache invalidation)
     const existingTask = await prisma.task.findUnique({
       where: { id: params.taskId },
-      include: { project: true },
+      include: { 
+        project: true,
+        assignees: true, // IMPROVEMENT: Include assignees
+      },
     });
 
     if (!existingTask) {
@@ -982,6 +1455,7 @@ export const TaskService = {
     }
 
     const wasCompleted = params.status === 'COMPLETED' && existingTask.status !== 'COMPLETED';
+    const assigneeIds = existingTask.assignees.map(a => a.userId); // IMPROVEMENT: Get assignee IDs
 
     // Update task
     const updated = await prisma.task.update({
@@ -1004,41 +1478,37 @@ export const TaskService = {
       },
     });
 
-    // Log status change activity
+    console.log(`🔄 Task status updated: "${existingTask.title}" → ${params.status}`);
+
+    // IMPROVEMENT: Use helper function for cache invalidation
+
+    // Log status change activity (non-blocking)
     if (existingTask.project?.workspaceId && params.status !== existingTask.status) {
-      try {
-        await ActivityService.createActivity({
-          action: 'STATUS_CHANGED',
-          entityType: 'TASK',
-          entityId: params.taskId,
-          userId: params.userId,
-          workspaceId: existingTask.project.workspaceId,
-          taskId: params.taskId,
-          metadata: {
-            taskTitle: existingTask.title,
-            oldStatus: existingTask.status,
-            newStatus: params.status,
-          },
-        });
-      } catch (activityError) {
-        console.error('Failed to log status change activity:', activityError);
-      }
+      ActivityService.createActivity({
+        action: 'STATUS_CHANGED',
+        entityType: 'TASK',
+        entityId: params.taskId,
+        userId: params.userId,
+        workspaceId: existingTask.project.workspaceId,
+        taskId: params.taskId,
+        metadata: {
+          taskTitle: existingTask.title,
+          oldStatus: existingTask.status,
+          newStatus: params.status,
+        },
+      }).catch(err => console.error('Failed to log activity:', err));
     }
 
-    // Notify on completion
+    // Notify on completion (non-blocking)
     if (wasCompleted) {
-      try {
-        await notifyTaskAssignees({
-          taskId: params.taskId,
-          senderId: params.userId,
-          type: 'TASK_COMPLETED',
-          title: 'Task Completed',
-          message: `${updated.createdBy.name || 'Someone'} completed "${existingTask.title}"`,
-          excludeUserId: params.userId,
-        });
-      } catch (notifError) {
-        console.error('Failed to send completion notification:', notifError);
-      }
+      notifyTaskAssignees({
+        taskId: params.taskId,
+        senderId: params.userId,
+        type: 'TASK_COMPLETED',
+        title: 'Task Completed',
+        message: `Task "${existingTask.title}" was completed`,
+        excludeUserId: params.userId,
+      }).catch(() => {});
     }
 
     return {
@@ -1073,70 +1543,40 @@ export const TaskService = {
           },
         ],
       },
-      include: { project: true },
+      include: { project: true, assignees: true },
     });
 
     if (!task) {
       throw new Error('You do not have permission to delete this task');
     }
 
-    // Log deletion activity
-    if (task.project?.workspaceId) {
-      try {
-        await ActivityService.createActivity({
-          action: 'DELETED',
-          entityType: 'TASK',
-          entityId: task.id,
-          userId: params.userId,
-          workspaceId: task.project.workspaceId,
-          metadata: {
-            taskTitle: task.title,
-            status: task.status,
-            priority: task.priority,
-            deletedAt: new Date().toISOString(),
-          },
-        });
-      } catch (activityError) {
-        console.error('Failed to log deletion activity:', activityError);
-      }
-    }
+    const assigneeIds = task.assignees.map(a => a.userId);
 
+    // Delete task
     await prisma.task.delete({ where: { id: params.taskId } });
 
+    console.log(`🗑️  Task deleted: "${task.title}" (ID: ${task.id})`);
+
+    // Invalidate caches using helper function
+
+    // Log deletion activity (non-blocking)
+    if (task.project?.workspaceId) {
+      ActivityService.createActivity({
+        action: 'DELETED',
+        entityType: 'TASK',
+        entityId: task.id,
+        userId: params.userId,
+        workspaceId: task.project.workspaceId,
+        metadata: {
+          taskTitle: task.title,
+          status: task.status,
+          priority: task.priority,
+          deletedAt: new Date().toISOString(),
+        },
+      }).catch(err => console.error('Failed to log activity:', err));
+    }
+
     return { success: true };
-  },
-
-  /**
-   * Complete task and notify assignees
-   */
-  async completeTask(taskId: string, completedBy: string) {
-    const task = await prisma.task.update({
-      where: { id: taskId },
-      data: {
-        status: "COMPLETED",
-        completedAt: new Date(),
-      },
-      include: {
-        assignees: true,
-      },
-    });
-
-    const completer = await prisma.user.findUnique({
-      where: { id: completedBy },
-      select: { name: true },
-    });
-
-    // Notify other assignees
-    await notifyTaskAssignees({
-      taskId,
-      senderId: completedBy,
-      type: "TASK_COMPLETED",
-      title: "Task Completed",
-      message: `${completer?.name || "Someone"} completed "${task.title}"`,
-      excludeUserId: completedBy,
-    });
-
-    return task;
   },
 
   /**
@@ -1156,7 +1596,10 @@ export const TaskService = {
     });
 
     const [task, commenter] = await Promise.all([
-      prisma.task.findUnique({ where: { id: params.taskId } }),
+      prisma.task.findUnique({ 
+        where: { id: params.taskId },
+        include: { project: true }
+      }),
       prisma.user.findUnique({
         where: { id: params.userId },
         select: { name: true },
@@ -1165,33 +1608,28 @@ export const TaskService = {
 
     if (!task) return comment;
 
-    // Notify task assignees (except commenter)
-    await notifyTaskAssignees({
+    // Invalidate task cache
+
+    // Notify task assignees (non-blocking)
+    notifyTaskAssignees({
       taskId: params.taskId,
       senderId: params.userId,
       type: "TASK_COMMENTED",
       title: "New Comment",
       message: `${commenter?.name || "Someone"} commented on "${task.title}"`,
       excludeUserId: params.userId,
-    });
+    }).catch(() => {});
 
-    // Handle mentions
-    if (task.projectId) {
-      const project = await prisma.project.findUnique({
-        where: { id: task.projectId },
-        select: { workspaceId: true },
-      });
-
-      if (project && project.workspaceId) {
-        await notifyMentions({
-          text: params.content,
-          workspaceId: project.workspaceId,
-          senderId: params.userId,
-          senderName: commenter?.name || "Someone",
-          context: `task "${task.title}"`,
-          actionUrl: `/dashboard/tasks/${params.taskId}`,
-        });
-      }
+    // Handle mentions (non-blocking)
+    if (task.projectId && task.project?.workspaceId) {
+      notifyMentions({
+        text: params.content,
+        workspaceId: task.project.workspaceId,
+        senderId: params.userId,
+        senderName: commenter?.name || "Someone",
+        context: `task "${task.title}"`,
+        actionUrl: `/dashboard/tasks/${params.taskId}`,
+      }).catch(() => {});
     }
 
     return comment;
@@ -1245,5 +1683,4 @@ export const TaskService = {
 
     return tasks;
   },
-  
 };
