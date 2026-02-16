@@ -2,7 +2,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import { prisma } from '../index.js';
-import { StorageService } from '../services/storage.service.js';
 
 // GET /api/user/profile
 export const getUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -30,6 +29,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
         ownedWorkspaces: {
           select: {
             id: true,
+            name: true,
             plan: true,
             maxStorage: true,
           },
@@ -39,6 +39,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
             workspace: {
               select: {
                 id: true,
+                name: true,
                 plan: true,
               },
             },
@@ -55,19 +56,12 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Get storage info using StorageService
-    const storageInfo = await StorageService.getStorageInfo(user.id);
-
+    // Note: Storage is now workspace-specific
+    // Users should check /api/storage/workspaces for storage info
     res.status(200).json({
       success: true,
       data: {
         user,
-        storage: {
-          total: storageInfo.totalMB,
-          used: storageInfo.usedMB,
-          remaining: storageInfo.remainingMB,
-          percentage: storageInfo.percentage,
-        },
       },
     });
   } catch (error) {
@@ -78,75 +72,6 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
     });
   }
 };
-
-// Helper function to check profile picture update limit based on plan
-// const canUpdateProfilePicture = (
-//   lastUpdated: Date,
-//   userPlan: string
-// ): { allowed: boolean; timeRemaining?: number; message?: string } => {
-//   const now = new Date();
-//   const timeDiff = now.getTime() - lastUpdated.getTime();
-  
-//   // Determine cooldown period based on plan
-//   let cooldownMs: number;
-//   let planName: string;
-  
-//   switch (userPlan) {
-//     case 'FREE':
-//       cooldownMs = 24 * 60 * 60 * 1000; // 24 hours (1 day)
-//       planName = 'FREE';
-//       break;
-//     case 'PRO':
-//       cooldownMs = 6 * 60 * 60 * 1000; // 6 hours
-//       planName = 'PRO';
-//       break;
-//     case 'BUSINESS':
-//       cooldownMs = 30 * 60 * 1000; // 30 minutes
-//       planName = 'BUSINESS';
-//       break;
-//     case 'ENTERPRISE':
-//       // No restrictions for ENTERPRISE
-//       return { allowed: true };
-//     default:
-//       // Default to FREE plan restrictions
-//       cooldownMs = 24 * 60 * 60 * 1000;
-//       planName = 'FREE';
-//   }
-  
-//   if (timeDiff >= cooldownMs) {
-//     return { allowed: true };
-//   }
-  
-//   const timeRemainingMs = cooldownMs - timeDiff;
-//   const timeRemainingSec = Math.ceil(timeRemainingMs / 1000);
-  
-//   // Calculate hours and minutes for user-friendly message
-//   const hours = Math.floor(timeRemainingSec / 3600);
-//   const minutes = Math.floor((timeRemainingSec % 3600) / 60);
-//   const seconds = timeRemainingSec % 60;
-  
-//   // Build user-friendly message
-//   let message: string;
-//   if (planName === 'FREE') {
-//     message = hours > 0 
-//       ? `You can only update your profile picture once per day (FREE plan). Please try again in ${hours}h ${minutes}m.`
-//       : `You can only update your profile picture once per day (FREE plan). Please try again in ${minutes}m ${seconds}s.`;
-//   } else if (planName === 'PRO') {
-//     message = hours > 0
-//       ? `You can update your profile picture once every 6 hours (PRO plan). Please try again in ${hours}h ${minutes}m.`
-//       : `You can update your profile picture once every 6 hours (PRO plan). Please try again in ${minutes}m ${seconds}s.`;
-//   } else if (planName === 'BUSINESS') {
-//     message = `You can update your profile picture once every 30 minutes (BUSINESS plan). Please try again in ${minutes}m ${seconds}s.`;
-//   } else {
-//     message = `Please try again in ${minutes}m ${seconds}s.`;
-//   }
-  
-//   return { 
-//     allowed: false, 
-//     timeRemaining: timeRemainingSec,
-//     message 
-//   };
-// };
 
 // PUT /api/user/profile
 export const updateUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -184,38 +109,6 @@ export const updateUserProfile = async (req: AuthRequest, res: Response): Promis
         message: 'Invalid timezone format',
       });
       return;
-    }
-
-    // If updating profile picture, check rate limits
-    if (image !== undefined) {
-      const currentUser = await prisma.user.findUnique({
-        where: { id: req.user.id },
-        select: {
-          updatedAt: true,
-          image: true,
-          ownedWorkspaces: {
-            select: {
-              plan: true,
-            },
-            take: 1,
-            orderBy: {
-              createdAt: 'desc', // Get the most recent workspace
-            },
-          },
-        },
-      });
-
-      if (!currentUser) {
-        res.status(404).json({
-          success: false,
-          message: 'User not found',
-        });
-        return;
-      }
-
-      console.log(currentUser)
-    
-      
     }
 
     // Build update data object
