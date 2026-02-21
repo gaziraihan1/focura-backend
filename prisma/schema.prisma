@@ -59,6 +59,7 @@ model User {
   goalCheckpoints        GoalCheckpoint[]
   systemEvents           SystemCalendarEvent[]
   burnoutSignals         BurnoutSignal[]
+  UploadRateLimit        UploadRateLimit[]
 }
 
 enum UserPlan {
@@ -171,6 +172,7 @@ model Workspace {
   invitations WorkspaceInvitation[]
   goalCheckpoints GoalCheckpoint[]
   systemEvents    SystemCalendarEvent[]
+  uploadRateLimit UploadRateLimit[]
 
   @@index([ownerId])
   @@index([slug])
@@ -779,6 +781,24 @@ model File {
   @@index([uploadedById])
   @@index([projectId])
   @@index([taskId])
+  @@index([uploadedAt])
+}
+
+model UploadRateLimit {
+  id          String    @id @default(cuid())
+  userId      String    
+  workspaceId String
+  uploadedAt  DateTime  @default(now())
+
+  // For cleanup  - auto-delete records older than 1 day
+
+  expiresAt   DateTime
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, workspaceId, uploadedAt])
+  @@index([expiresAt]) //For cron cleanup
 }
 
 // ============================================

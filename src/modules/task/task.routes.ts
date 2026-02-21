@@ -1,0 +1,40 @@
+// src/modules/task/task.routes.ts
+import { Router } from 'express';
+import { upload } from '../../middleware/upload.js';
+import {
+  getTasks,
+  getTaskStats,
+  createTask,
+  getTask,
+  updateTask,
+  updateTaskStatus,
+  deleteTask,
+} from './task.controller.js';
+import commentRoutes from '../comment/comment.routes.js';
+
+// Import attachment handlers from attachment module
+import {
+  getTaskAttachments,
+  addAttachment,
+  deleteAttachment,
+} from '../attachment/index.js';
+
+const router = Router();
+
+router.get('/stats', getTaskStats);
+router.get('/', getTasks);
+router.post('/', createTask);
+router.get('/:id', getTask);
+router.put('/:id', updateTask);
+router.patch('/:id/status', updateTaskStatus);
+router.delete('/:id', deleteTask);
+
+// Nested routes
+router.use('/:taskId/comments', commentRoutes);
+
+// Attachment routes (nested under tasks)
+router.get('/:taskId/attachments', getTaskAttachments);
+router.post('/:taskId/attachments', upload.single('file'), addAttachment);
+router.delete('/:taskId/attachments/:attachmentId', deleteAttachment);
+
+export default router;

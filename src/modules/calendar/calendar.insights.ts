@@ -1,0 +1,117 @@
+/**
+ * calendar.insights.ts
+ * Responsibility: Derived analytics — capacity insights and burnout signals.
+ *
+ * Kept separate from aggregation because:
+ *  - It reads aggregates (via CalendarAggregation) but never writes them.
+ *  - It writes BurnoutSignal records — a completely separate Prisma model.
+ *  - The burnout scoring formula can change independently of how aggregates are computed.
+ */
+
+import { prisma } from '../../index.js';
+import type { BurnoutSignal, CalendarInsights } from './calendar.types.js';
+import type { RiskLevel } from './calendar.types.js';
+import { CalendarAggregation } from './calendar.aggregation.js';
+import {
+  normalizeDate,
+  countWorkDays,
+  getWorkDayNumbers,
+  countConsecutiveDays,
+  getWeekStart,
+} from './calendar.utils.js';
+
+export const CalendarInsightsService = {
+  /**
+   * Computes high-level capacity metrics for a date range:
+   * planned vs capacity hours, overloaded days, focus days, burnout risk.
+   */
+  async getInsights(
+    userId: string,
+    workspaceId: string | undefined,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<CalendarInsights> {
+    const [aggregates, capacity, schedule] = await Promise.all([
+      CalendarAggregation.getOrComputeAggregates({ userId, workspaceId, startDate, endDate }),
+      prisma.userCapacity.findUnique({ where: { userId } }),
+      prisma.userWorkSchedule.findUnique({ where: { userId } }),
+    ]);
+
+    const workDays      = (schedule?.workDays as string[]) ?? ['MON', 'TUE', 'WED', 'THU', 'FRI'];
+    const dailyCapacity = capacity?.dailyCapacityHours ?? 8;
+    const workDaysCount = countWorkDays(startDate, endDate, workDays);
+
+    const totalPlannedHours   = aggregates.reduce((sum, agg) => sum + agg.plannedHours, 0);
+    const totalCapacityHours  = workDaysCount * dailyCapacity;
+    const commitmentGap       = totalPlannedHours - totalCapacityHours;
+    const overloadedDays      = aggregates.filter((agg) => agg.overCapacity).length;
+    const focusDays           = aggregates.filter((agg) => agg.hasPrimaryFocus).length;
+
+    const burnoutSignal = await this.calculateBurnoutRisk(userId, startDate);
+
+    return {
+      totalPlannedHours,
+      totalCapacityHours,
+      commitmentGap,
+      overloadedDays,
+      focusDays,
+      burnoutRisk:    burnoutSignal.riskLevel,
+      timeAllocation: null, // null until real category tracking is implemented
+    };
+  },
+
+  /**
+   * Calculates and persists a BurnoutSignal for the ISO week containing `weekStart`.
+   *
+   * Scoring thresholds:
+   *  CRITICAL  — 5+ consecutive heavy days OR avg load > 1.5
+   *  HIGH      — 3+ consecutive heavy days OR avg load > 1.2
+   *  MODERATE  — 2+ heavy days OR avg load > 1.0
+   *  LOW       — everything else
+   */
+  async calculateBurnoutRisk(userId: string, weekStart: Date): Promise<BurnoutSignal> {
+    const normalizedWeekStart = getWeekStart(weekStart);
+
+    const weekEnd = new Date(normalizedWeekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    const [aggregates, schedule] = await Promise.all([
+      CalendarAggregation.getOrComputeAggregates({
+        userId,
+        startDate: normalizedWeekStart,
+        endDate:   weekEnd,
+      }),
+      prisma.userWorkSchedule.findUnique({ where: { userId } }),
+    ]);
+
+    const workDays       = (schedule?.workDays as string[]) ?? ['MON', 'TUE', 'WED', 'THU', 'FRI'];
+    const workDayNumbers = getWorkDayNumbers(workDays);
+
+    // Only workday aggregates count toward burnout
+    const workdayAggs = aggregates.filter((agg) =>
+      workDayNumbers.includes(agg.date.getDay()),
+    );
+
+    const heavyDays             = workdayAggs.filter((agg) => agg.workloadScore > 1.2);
+    const consecutiveHeavyDays  = countConsecutiveDays(workdayAggs, (agg) => agg.workloadScore > 1.2);
+    const avgDailyLoad          = workdayAggs.length > 0
+      ? workdayAggs.reduce((sum, agg) => sum + agg.workloadScore, 0) / workdayAggs.length
+      : 0;
+
+    let riskLevel: RiskLevel = 'LOW';
+
+    if (consecutiveHeavyDays >= 5 || avgDailyLoad > 1.5) {
+      riskLevel = 'CRITICAL';
+    } else if (consecutiveHeavyDays >= 3 || avgDailyLoad > 1.2) {
+      riskLevel = 'HIGH';
+    } else if (heavyDays.length >= 2 || avgDailyLoad > 1.0) {
+      riskLevel = 'MODERATE';
+    }
+
+    return prisma.burnoutSignal.upsert({
+      where:  { userId_weekStart: { userId, weekStart: normalizedWeekStart } },
+      update: { consecutiveHeavyDays, avgDailyLoad, riskLevel },
+      create: { userId, weekStart: normalizedWeekStart, consecutiveHeavyDays, avgDailyLoad, riskLevel },
+    });
+  },
+};

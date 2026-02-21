@@ -6,23 +6,23 @@ import helmet from 'helmet';
 
 import { initNotificationCrons } from "./cron/notification.cron.js";
 
-import projectRoutes from './routes/project.routes.js';
-import taskRoutes from './routes/task.routes.js';
-import dailyTaskRoutes from './routes/dailyTask.routes.js'; // NEW
-import fileRoutes from './routes/file.routes.js';
-import activityRoutes from './routes/activity.routes.js';
+import {projectRouter} from '../src/modules/project/index.js';
+import {taskRouter} from '../src/modules/task/index.js';
+import {dailyTaskRouter, initDailyTaskCrons} from '../src/modules/dailyTask/index.js'; // NEW
+// import fileRoutes from './routes/file.routes.js';
+import {activityRouter} from '../src/modules/activity/index.js';
 import userRoutes from './routes/user.routes.js';
-import uploadRoutes from './routes/upload.routes.js';
-import labelRoutes from './routes/label.routes.js';
-import notificationRoutes from './routes/notification.route.js';
-import workspaceRoutes from './routes/workspace.routes.js';
-import calendarRoutes from './routes/calendar.routes.js';
-import focusSessionRoutes from './routes/focusSession.routes.js'
-import storageRoutes from './routes/storage.routes.js'
+import uploadRoutes from '../src/modules/upload/upload.routes.js';
+import {labelRouter} from '../src/modules/label/index.js';
+import {notificationRouter} from '../src/modules/notification/index.js';
+import {workspaceRouter} from '../src/modules/workspace/index.js';
+import {calendarRouter} from '../src/modules/calendar/index.js';
+import {focusSessionRouter} from '../src/modules/focusSession/index.js'
+import {storageRouter} from '../src/modules/storage/index.js'
+import {analyticsRouter} from '../src/modules/analytics/index.js'
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
-import { initDailyTaskCrons } from './cron/dailyTask.cron.js';
 
 dotenv.config();
 
@@ -131,19 +131,20 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
   });
 });
 
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/workspaces', authenticate, workspaceRoutes);
-app.use('/api/projects', authenticate, projectRoutes);
-app.use('/api/tasks', authenticate, taskRoutes);  
-app.use('/api/daily-tasks', authenticate, dailyTaskRoutes); // NEW: Daily task prioritization
-app.use('/api/files', authenticate, fileRoutes);
-app.use('/api/activities', authenticate, activityRoutes);
+app.use('/api/notifications', notificationRouter);
+app.use('/api/workspaces', authenticate, workspaceRouter);
+app.use('/api/projects', authenticate, projectRouter);
+app.use('/api/tasks', authenticate, taskRouter);  
+app.use('/api/daily-tasks', authenticate, dailyTaskRouter); // NEW: Daily task prioritization
+// app.use('/api/files', authenticate, fileRoutes);
+app.use('/api/activities', authenticate, activityRouter);
 app.use('/api/user', authenticate, userRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
-app.use('/api/labels', authenticate, labelRoutes);
-app.use('/api/calendar', authenticate, calendarRoutes);
-app.use('/api/focus-sessions',authenticate, focusSessionRoutes);
-app.use('/api/storage', authenticate, storageRoutes)
+app.use('/api/labels', authenticate, labelRouter);
+app.use('/api/calendar', authenticate, calendarRouter);
+app.use('/api/focus-sessions',authenticate, focusSessionRouter);
+app.use('/api/storage', authenticate, storageRouter);
+app.use('/api/analytics', authenticate, analyticsRouter)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);
