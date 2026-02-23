@@ -20,6 +20,7 @@ import {calendarRouter} from '../src/modules/calendar/index.js';
 import {focusSessionRouter} from '../src/modules/focusSession/index.js'
 import {storageRouter} from '../src/modules/storage/index.js'
 import {analyticsRouter} from '../src/modules/analytics/index.js'
+import {fileManagementRouter} from '../src/modules/file/index.js'
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -136,7 +137,6 @@ app.use('/api/workspaces', authenticate, workspaceRouter);
 app.use('/api/projects', authenticate, projectRouter);
 app.use('/api/tasks', authenticate, taskRouter);  
 app.use('/api/daily-tasks', authenticate, dailyTaskRouter); // NEW: Daily task prioritization
-// app.use('/api/files', authenticate, fileRoutes);
 app.use('/api/activities', authenticate, activityRouter);
 app.use('/api/user', authenticate, userRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
@@ -144,7 +144,8 @@ app.use('/api/labels', authenticate, labelRouter);
 app.use('/api/calendar', authenticate, calendarRouter);
 app.use('/api/focus-sessions',authenticate, focusSessionRouter);
 app.use('/api/storage', authenticate, storageRouter);
-app.use('/api/analytics', authenticate, analyticsRouter)
+app.use('/api/analytics', authenticate, analyticsRouter);
+app.use('/api/file-management', authenticate, fileManagementRouter)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);
