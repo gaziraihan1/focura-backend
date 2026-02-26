@@ -4,3 +4,7 @@
 .env*
 node_modules
 dist/
+# RSA Keys - NEVER commit private key!
+keys/private.pem
+keys/*.pem
+!keys/public.pem

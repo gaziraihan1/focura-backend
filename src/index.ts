@@ -17,10 +17,11 @@ import {labelRouter} from '../src/modules/label/index.js';
 import {notificationRouter} from '../src/modules/notification/index.js';
 import {workspaceRouter} from '../src/modules/workspace/index.js';
 import {calendarRouter} from '../src/modules/calendar/index.js';
-import {focusSessionRouter} from '../src/modules/focusSession/index.js'
-import {storageRouter} from '../src/modules/storage/index.js'
-import {analyticsRouter} from '../src/modules/analytics/index.js'
-import {fileManagementRouter} from '../src/modules/file/index.js'
+import {focusSessionRouter} from '../src/modules/focusSession/index.js';
+import {storageRouter} from '../src/modules/storage/index.js';
+import {analyticsRouter} from '../src/modules/analytics/index.js';
+import {fileManagementRouter} from '../src/modules/file/index.js';
+import logoutRoutes from './routes/auth.routes.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -145,7 +146,8 @@ app.use('/api/calendar', authenticate, calendarRouter);
 app.use('/api/focus-sessions',authenticate, focusSessionRouter);
 app.use('/api/storage', authenticate, storageRouter);
 app.use('/api/analytics', authenticate, analyticsRouter);
-app.use('/api/file-management', authenticate, fileManagementRouter)
+app.use('/api/file-management', authenticate, fileManagementRouter);
+app.use('/api/auth', logoutRoutes)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);
@@ -166,7 +168,7 @@ const server = app.listen(PORT, () => {
   console.log(`🌐 Allowed Origins:`, allowedOrigins);
   console.log(`🔒 HTTPS Required: ${isProd}`);
   console.log(`🔑 Auth Method: Authorization Header (Bearer Token)`);
-  console.log(`📡 SSE: /api/notifications/stream/:userId (query token auth)`);
+  console.log(`📡 SSE: /api/notifications/stream/:userId?token=`);
   console.log(`📅 Daily Tasks: /api/daily-tasks (PRIMARY/SECONDARY prioritization)`); // NEW
   console.log(`⏰ Cron Jobs: Notifications + Daily Task Cleanup`); // NEW
   console.log('='.repeat(60));
