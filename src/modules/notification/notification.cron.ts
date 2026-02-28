@@ -1,29 +1,25 @@
-// cron/notification.cron.ts
-import cron from "node-cron";
-import { notifyUser } from "../utils/notification.helpers.js";
-import { NotificationService } from "../services/notification.service.js";
-import { prisma } from "../index.js";
+import cron from 'node-cron';
+import { prisma } from '../../index.js';
+import { notifyUser } from '../../utils/notification.helpers.js';
+import { NotificationMutation } from './notification.mutation.js';
+
 
 const REMINDERS = [
-  { label: "6h", ms: 6 * 60 * 60 * 1000 },
-  { label: "3h", ms: 3 * 60 * 60 * 1000 },
-  { label: "30m", ms: 30 * 60 * 1000 },
+  { label: '6h', ms: 6 * 60 * 60 * 1000 },
+  { label: '3h', ms: 3 * 60 * 60 * 1000 },
+  { label: '30m', ms: 30 * 60 * 1000 },
 ];
 
 const OVERDUE = [
-  { label: "1h", ms: 1 * 60 * 60 * 1000 },
-  { label: "6h", ms: 6 * 60 * 60 * 1000 },
-  { label: "24h", ms: 24 * 60 * 60 * 1000 },
+  { label: '1h', ms: 1 * 60 * 60 * 1000 },
+  { label: '6h', ms: 6 * 60 * 60 * 1000 },
+  { label: '24h', ms: 24 * 60 * 60 * 1000 },
 ];
+
 
 const sentNotifications = new Map<string, Set<string>>();
 
-function getNotificationKey(
-  taskId: string,
-  userId: string,
-  type: string,
-  label: string
-): string {
+function getNotificationKey(taskId: string, userId: string, type: string, label: string): string {
   return `${taskId}-${userId}-${type}-${label}`;
 }
 
@@ -54,16 +50,15 @@ function cleanupOldTracking(): void {
   keysToDelete.forEach((key) => sentNotifications.delete(key));
 }
 
-
 export function startTaskReminderCron() {
-  cron.schedule("*/5 * * * *", async () => {
+  cron.schedule('*/5 * * * *', async () => {
     try {
-      console.log("Running task reminder cron job...");
+      console.log('🔔 Running task reminder cron job...');
 
       const tasks = await prisma.task.findMany({
         where: {
           dueDate: { not: null },
-          status: { notIn: ["COMPLETED", "CANCELLED"] },
+          status: { notIn: ['COMPLETED', 'CANCELLED'] },
         },
         include: {
           assignees: {
@@ -73,7 +68,7 @@ export function startTaskReminderCron() {
                   id: true,
                   name: true,
                   email: true,
-                  notifications: true, 
+                  notifications: true,
                 },
               },
             },
@@ -95,27 +90,20 @@ export function startTaskReminderCron() {
             for (const assignee of task.assignees) {
               if (!assignee.user.notifications) continue;
 
-              const notifKey = getNotificationKey(
-                task.id,
-                assignee.userId,
-                "DUE_SOON",
-                r.label
-              );
+              const notifKey = getNotificationKey(task.id, assignee.userId, 'DUE_SOON', r.label);
 
               if (wasNotificationSent(notifKey)) continue;
 
               await notifyUser({
                 userId: assignee.userId,
-                type: "TASK_DUE_SOON",
-                title: "Task Due Soon",
+                type: 'TASK_DUE_SOON',
+                title: 'Task Due Soon',
                 message: `"${task.title}" is due in ${r.label}`,
                 actionUrl: `/dashboard/tasks/${task.id}`,
               });
 
               markNotificationSent(notifKey);
-              console.log(
-                `Sent due soon reminder (${r.label}) for task ${task.id} to user ${assignee.userId}`
-              );
+              console.log(`  ✅ Sent due soon reminder (${r.label}) for task ${task.id} to user ${assignee.userId}`);
             }
           }
         }
@@ -127,60 +115,52 @@ export function startTaskReminderCron() {
             for (const assignee of task.assignees) {
               if (!assignee.user.notifications) continue;
 
-              const notifKey = getNotificationKey(
-                task.id,
-                assignee.userId,
-                "OVERDUE",
-                o.label
-              );
+              const notifKey = getNotificationKey(task.id, assignee.userId, 'OVERDUE', o.label);
 
               if (wasNotificationSent(notifKey)) continue;
 
               await notifyUser({
                 userId: assignee.userId,
-                type: "TASK_OVERDUE",
-                title: "Task Overdue",
+                type: 'TASK_OVERDUE',
+                title: 'Task Overdue',
                 message: `"${task.title}" is overdue by ${o.label}`,
                 actionUrl: `/dashboard/tasks/${task.id}`,
               });
 
               markNotificationSent(notifKey);
-              console.log(
-                `Sent overdue reminder (${o.label}) for task ${task.id} to user ${assignee.userId}`
-              );
+              console.log(`  ✅ Sent overdue reminder (${o.label}) for task ${task.id} to user ${assignee.userId}`);
             }
           }
         }
       }
 
-      console.log("Task reminder cron job completed");
+      console.log('✅ Task reminder cron job completed');
     } catch (error) {
-      console.error("Error in task reminder cron job:", error);
+      console.error('❌ Error in task reminder cron job:', error);
     }
   });
 
-  console.log("✅ Task reminder cron job started (runs every 5 minutes)");
+  console.log('✅ Task reminder cron job started (runs every 5 minutes)');
 }
 
 export function startNotificationCleanupCron() {
-  cron.schedule("0 3 * * *", async () => {
+  cron.schedule('0 3 * * *', async () => {
     try {
-      console.log("Running notification cleanup cron job...");
+      console.log('🧹 Running notification cleanup cron job...');
 
-      const result = await NotificationService.deleteOldReadNotifications(30);
+      const result = await NotificationMutation.deleteOldReadNotifications(30);
 
-      console.log(`Cleaned up ${result.count} old read notifications`);
+      console.log(`  ✅ Cleaned up ${result.count} old read notifications`);
 
       cleanupOldTracking();
-      console.log("Cleaned up old notification tracking data");
+      console.log('  ✅ Cleaned up old notification tracking data');
     } catch (error) {
-      console.error("Error in notification cleanup cron job:", error);
+      console.error('❌ Error in notification cleanup cron job:', error);
     }
   });
 
-  console.log("✅ Notification cleanup cron job started (runs daily at 3 AM)");
+  console.log('✅ Notification cleanup cron job started (runs daily at 3 AM)');
 }
-
 
 export function initNotificationCrons() {
   startTaskReminderCron();

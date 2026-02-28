@@ -1,13 +1,4 @@
-/**
- * label.types.ts
- * Responsibility: All types, interfaces, and domain error classes for the Label domain.
- *
- * Error classes live here (not in a separate errors.ts) because they are
- * Label-domain-specific. If you later build a shared error base across all
- * modules, move them to shared/errors.ts and re-export from here.
- */
 
-// ─── Domain error hierarchy ───────────────────────────────────────────────────
 
 export class LabelError extends Error {
   constructor(message: string, public readonly code: string) {
@@ -40,8 +31,6 @@ export class ConflictError extends LabelError {
   }
 }
 
-// ─── Input shapes ─────────────────────────────────────────────────────────────
-
 export interface CreateLabelDto {
   name: string;
   color: string;
@@ -55,8 +44,6 @@ export interface UpdateLabelDto {
   color?: string;
   description?: string | null;
 }
-
-// ─── Filter shapes ─────────────────────────────────────────────────────────────
 
 export interface LabelFilters {
   workspaceId?: string;

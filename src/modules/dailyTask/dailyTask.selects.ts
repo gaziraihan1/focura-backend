@@ -1,12 +1,3 @@
-/**
- * dailyTask.selects.ts
- * Responsibility: Reusable Prisma `include` / `select` fragments.
- *
- * Why this file exists:
- *  The full task include block was copy-pasted 3 times in the original service
- *  (getDailyTasks, addDailyTask update path, addDailyTask create path).
- *  One field change now updates all three automatically.
- */
 
 export const userSelect = {
   id:    true,
@@ -24,10 +15,6 @@ export const workspaceNameSelect = {
   name: true,
 } as const;
 
-/**
- * Full task shape returned in list/create/update responses.
- * Includes counts for comments, subtasks, and files.
- */
 export const taskFullInclude = {
   createdBy: { select: userSelect },
   assignees: {
@@ -53,10 +40,6 @@ export const taskFullInclude = {
   },
 } as const;
 
-/**
- * Slim task shape used when writing activity logs.
- * Only fetches workspace id — nothing displayed to the user.
- */
 export const taskWorkspaceInclude = {
   project: {
     select: {
@@ -65,10 +48,6 @@ export const taskWorkspaceInclude = {
   },
 } as const;
 
-/**
- * Minimal task shape used in stats queries.
- * Only status and completedAt matter for completion-rate calculations.
- */
 export const taskStatsSelect = {
   id:          true,
   status:      true,

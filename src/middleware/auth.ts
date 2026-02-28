@@ -1,8 +1,3 @@
-// backend/src/middleware/auth.ts
-// STATUS: MODIFY — replaces your current auth middleware
-// CHANGES: RS256 verification using public key only (no private key on backend),
-//          token version check, token type check, optional Redis revocation check,
-//          role-based authorize(), user-tier rate limiting middleware.
 
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
@@ -20,17 +15,12 @@ export interface AuthRequest extends Request {
   };
 }
 
-// ─── Load Public Key ──────────────────────────────────────────────────────────
-// The backend ONLY needs the public key — never load the private key here.
-
 let publicKey: string;
 
 try {
   if (process.env.JWT_PUBLIC_KEY) {
-    // Production: base64-encoded env var
     publicKey = Buffer.from(process.env.JWT_PUBLIC_KEY, "base64").toString("utf-8");
   } else {
-    // Development: PEM file path
     const keysDir = path.join(process.cwd(), "..", "keys");
     publicKey = fs.readFileSync(
       process.env.JWT_PUBLIC_KEY_PATH || path.join(keysDir, "public.pem"),
@@ -42,15 +32,8 @@ try {
   throw new Error("JWT public key not found. Copy keys/public.pem from frontend.");
 }
 
-// Must match CURRENT_TOKEN_VERSION in frontend/src/lib/auth/backendToken.ts
 const CURRENT_TOKEN_VERSION = 1;
 
-// ─── authenticate ─────────────────────────────────────────────────────────────
-
-/**
- * Main auth middleware. Verifies the Bearer token, checks version/type,
- * optionally checks Redis revocation, then attaches user to req.user.
- */
 export const authenticate = async (
   req: AuthRequest,
   res: Response,
@@ -76,7 +59,6 @@ export const authenticate = async (
       });
     }
 
-    // 1. Cryptographic verification (RS256, issuer, audience)
     let decoded: any;
     try {
       decoded = jwt.verify(token, publicKey, {
@@ -99,7 +81,6 @@ export const authenticate = async (
       });
     }
 
-    // 2. Token version check (allows global invalidation by incrementing CURRENT_TOKEN_VERSION)
     if (decoded.version !== CURRENT_TOKEN_VERSION) {
       return res.status(401).json({
         success: false,
@@ -108,7 +89,6 @@ export const authenticate = async (
       });
     }
 
-    // 3. Token type check — only access tokens are accepted here
     if (decoded.type !== "access") {
       return res.status(401).json({
         success: false,
@@ -117,7 +97,6 @@ export const authenticate = async (
       });
     }
 
-    // 4. Optional Redis revocation check (skipped gracefully if Redis not configured)
     if (decoded.jti && process.env.UPSTASH_REDIS_REST_URL) {
       const { isAccessTokenRevoked } = await import("../lib/auth/tokenRevocation.js");
       const isRevoked = await isAccessTokenRevoked(decoded.jti);
@@ -130,7 +109,6 @@ export const authenticate = async (
       }
     }
 
-    // 5. Database lookup — verify user still exists and email is verified
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },
       select: { id: true, email: true, name: true, role: true, emailVerified: true },
@@ -152,7 +130,6 @@ export const authenticate = async (
       });
     }
 
-    // Attach to request for downstream handlers
     req.user = {
       id: user.id,
       email: user.email,
@@ -173,14 +150,6 @@ export const authenticate = async (
   }
 };
 
-// ─── authorize ────────────────────────────────────────────────────────────────
-
-/**
- * Role-based authorization. Must be used after authenticate().
- *
- * @example
- *   router.delete('/user/:id', authenticate, authorize('ADMIN'), handler);
- */
 export const authorize = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -208,15 +177,6 @@ export const authorize = (...roles: string[]) => {
   };
 };
 
-// ─── rateLimitByUser ──────────────────────────────────────────────────────────
-
-/**
- * Per-user API rate limiter with subscription tier support.
- * Silently skips if Redis is not configured.
- *
- * @example
- *   router.post('/ai/generate', authenticate, rateLimitByUser('pro'), handler);
- */
 export const rateLimitByUser = (tier?: "free" | "pro" | "enterprise") => {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user?.id || !process.env.UPSTASH_REDIS_REST_URL) {
@@ -247,7 +207,7 @@ export const rateLimitByUser = (tier?: "free" | "pro" | "enterprise") => {
       next();
     } catch (err) {
       console.error("Rate limit error:", err);
-      next(); // Never block requests on limiter failure
+      next();
     }
   };
 };

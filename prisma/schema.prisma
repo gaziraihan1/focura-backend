@@ -7,9 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================
-// AUTHENTICATION & USER MANAGEMENT
-// ============================================
 
 model User {
   id                  String    @id @default(cuid())
@@ -24,16 +21,13 @@ model User {
   role                UserRole  @default(USER)
   plan                UserPlan  @default(FREE)
 
-  // Preferences
   theme         String? @default("system")
   notifications Boolean @default(true)
 
-  // Timestamps
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   lastLoginAt DateTime?
 
-  // Relations
   accounts               Account[]
   sessions               Session[]
   ownedWorkspaces        Workspace[]       @relation("WorkspaceOwner")
@@ -125,7 +119,7 @@ model RefreshToken {
   userId       String
   tokenHash    String   @db.Text
   revoked      Boolean  @default(false)
-  replacedById String? // id of the token that replaced this one
+  replacedById String?
   expiresAt    DateTime
   createdAt    DateTime @default(now())
 
@@ -134,9 +128,6 @@ model RefreshToken {
   @@index([userId])
 }
 
-// ============================================
-// WORKSPACE & TEAM MANAGEMENT
-// ============================================
 
 model Workspace {
   id          String  @id @default(cuid())
@@ -146,20 +137,16 @@ model Workspace {
   logo        String?
   color       String? @default("#667eea")
 
-  // Settings
   isPublic     Boolean @default(false)
   allowInvites Boolean @default(true)
 
-  // Billing
   plan       WorkspacePlan @default(FREE)
   maxMembers Int           @default(5)
-  maxStorage Int           @default(1024) // MB
+  maxStorage Int           @default(1024)
 
-  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
   ownerId String
   owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
@@ -190,7 +177,6 @@ model WorkspaceMember {
   role     WorkspaceRole @default(MEMBER)
   joinedAt DateTime      @default(now())
 
-  // Relations
   userId      String
   workspaceId String?
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -217,7 +203,6 @@ model WorkspaceInvitation {
   expiresAt DateTime
   createdAt DateTime         @default(now())
 
-  // Relations
   workspaceId String?
   invitedById String
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -233,9 +218,6 @@ enum InvitationStatus {
   EXPIRED
 }
 
-// ============================================
-// PROJECT MANAGEMENT
-// ============================================
 
 model Project {
   id          String  @id @default(cuid())
@@ -247,16 +229,13 @@ model Project {
   status   ProjectStatus @default(ACTIVE)
   priority Priority      @default(MEDIUM)
 
-  // Dates
   startDate   DateTime?
   dueDate     DateTime?
   completedAt DateTime?
 
-  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
   workspaceId String?
   createdById String
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -369,19 +348,16 @@ model ProjectFavorite {
   @@unique([projectId, userId])
 }
 
-// ============================================
-// TASK MANAGEMENT
-// ============================================
 
 model Task {
   id              String      @id @default(cuid())
   title           String
   description     String?     @db.Text
   focusRequired   Boolean     @default(false)
-  focusLevel      Int? // 1–5 (mental load)
-  energyType      TaskEnergy? // MORNING / AFTERNOON / EVENING
+  focusLevel      Int?
+  energyType      TaskEnergy?
   intent          TaskIntent? @default(EXECUTION)
-  distractionCost Int? // context switching penalty
+  distractionCost Int?
 
   status   TaskStatus @default(TODO)
   priority Priority   @default(MEDIUM)
@@ -453,7 +429,6 @@ model TaskAssignee {
   id         String   @id @default(cuid())
   assignedAt DateTime @default(now())
 
-  // Relations
   taskId String
   userId String
   task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -508,7 +483,7 @@ model TaskRecurrence {
 
   pattern  RecurrencePattern
   interval Int               @default(1)
-  days     Json? // e.g. ["MON", "WED"]
+  days     Json?
   endsAt   DateTime?
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -519,7 +494,7 @@ model DailyTask {
   userId    String
   taskId    String
   type      DailyTaskType
-  date      DateTime       // Stored as start of day (00:00:00)
+  date      DateTime
   addedAt   DateTime       @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -544,9 +519,6 @@ enum RecurrencePattern {
 }
 
 
-// ============================================
-// TIME INTELLIGENCE & CALENDAR SYSTEM
-// ============================================
 
 model UserCapacity {
   id        String   @id @default(cuid())
@@ -566,7 +538,7 @@ model UserWorkSchedule {
   id     String @id @default(cuid())
   userId String @unique
 
-  workDays Json // ["MON","TUE","WED","THU","FRI"]
+  workDays Json
 
   workStartHour Int     @default(9)
   workEndHour   Int     @default(17)
@@ -578,24 +550,20 @@ model UserWorkSchedule {
 model CalendarDayAggregate {
   id     String   @id @default(cuid())
   userId String
-  date   DateTime // stored as 00:00:00 UTC normalized
+  date   DateTime
 
-  // Task Metrics
   totalTasks     Int @default(0)
   dueTasks       Int @default(0)
   criticalTasks  Int @default(0)
   milestoneCount Int @default(0)
 
-  // Time Metrics
   plannedHours Float @default(0)
   actualHours  Float @default(0)
   focusMinutes Int   @default(0)
 
-  // Load Metrics
   workloadScore Float   @default(0)
   overCapacity  Boolean @default(false)
 
-  // Flags
   hasPrimaryFocus Boolean @default(false)
   isReviewDay     Boolean @default(false)
 
@@ -685,9 +653,6 @@ enum BurnoutRisk {
   CRITICAL
 }
 
-// ============================================
-// LABELS & TAGS
-// ============================================
 
 model Label {
   id          String  @id @default(cuid())
@@ -696,7 +661,6 @@ model Label {
   description String?
   createdAt   DateTime @default(now())
 
-  // Relations
   workspaceId String?
   createdById String
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -711,7 +675,6 @@ model Label {
 model TaskLabel {
   id String @id @default(cuid())
 
-  // Relations
   taskId  String
   labelId String
   task    Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
@@ -722,9 +685,6 @@ model TaskLabel {
   @@index([labelId])
 }
 
-// ============================================
-// COMMENTS & DISCUSSIONS
-// ============================================
 
 model Comment {
   id      String  @id @default(cuid())
@@ -734,10 +694,9 @@ model Comment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
   taskId   String
   userId   String
-  parentId String? // For nested comments/replies
+  parentId String?
 
   task    Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -748,25 +707,20 @@ model Comment {
   @@index([userId])
 }
 
-// ============================================
-// FILE MANAGEMENT
-// ============================================
 
 model File {
   id           String  @id @default(cuid())
   name         String
   originalName String
-  size         Int // bytes
+  size         Int
   mimeType     String
   url          String
   thumbnail    String?
 
-  // File organization
   folder String? @default("/")
 
   uploadedAt DateTime @default(now())
 
-  // Relations
   workspaceId  String?
   uploadedById String
   projectId    String?
@@ -790,7 +744,6 @@ model UploadRateLimit {
   workspaceId String
   uploadedAt  DateTime  @default(now())
 
-  // For cleanup  - auto-delete records older than 1 day
 
   expiresAt   DateTime
 
@@ -798,23 +751,19 @@ model UploadRateLimit {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([userId, workspaceId, uploadedAt])
-  @@index([expiresAt]) //For cron cleanup
+  @@index([expiresAt])
 }
 
-// ============================================
-// FOCUS MODE & TIME TRACKING
-// ============================================
 
 model FocusSession {
   id        String    @id @default(cuid())
-  duration  Int // minutes
+  duration  Int
   type      FocusType @default(POMODORO)
   completed Boolean   @default(false)
 
   startedAt DateTime  @default(now())
   endedAt   DateTime?
 
-  // Relations
   userId String
   taskId String?
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -826,23 +775,22 @@ model FocusSession {
 }
 
 enum FocusType {
-  POMODORO // 25 min
-  SHORT_BREAK // 5 min
-  LONG_BREAK // 15 min
-  DEEP_WORK // custom
+  POMODORO
+  SHORT_BREAK
+  LONG_BREAK
+  DEEP_WORK
   CUSTOM
 }
 
 model TimeEntry {
   id          String  @id @default(cuid())
   description String?
-  duration    Int // minutes
+  duration    Int
   billable    Boolean @default(false)
 
   startedAt DateTime
   endedAt   DateTime?
 
-  // Relations
   userId String
   taskId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -853,20 +801,16 @@ model TimeEntry {
   @@index([startedAt])
 }
 
-// ============================================
-// ACTIVITY & AUDIT LOG
-// ============================================
 
 model Activity {
   id         String       @id @default(cuid())
   action     ActivityType
   entityType EntityType
   entityId   String
-  metadata   Json? // Store additional data
+  metadata   Json?
 
   createdAt DateTime @default(now())
 
-  // Relations
   userId      String
   workspaceId String
   taskId      String?
@@ -903,9 +847,6 @@ enum EntityType {
   MEMBER
 }
 
-// ============================================
-// NOTIFICATIONS
-// ============================================
 
 model Notification {
   id        String           @id @default(cuid())
@@ -918,7 +859,6 @@ model Notification {
   createdAt DateTime  @default(now())
   readAt    DateTime?
 
-  // Relations
   userId   String
   senderId String?
   user     User    @relation("NotificationReceiver", fields: [userId], references: [id], onDelete: Cascade)
@@ -945,17 +885,14 @@ enum NotificationType {
   DEADLINE_REMINDER
 }
 
-// ============================================
-// INTEGRATIONS (Future)
-// ============================================
 
 model Integration {
   id           String  @id @default(cuid())
   name         String
-  provider     String // e.g., "github", "slack", "google-calendar"
+  provider     String
   accessToken  String? @db.Text
   refreshToken String? @db.Text
-  config       Json? // Integration-specific config
+  config       Json?
   active       Boolean @default(true)
 
   createdAt DateTime @default(now())

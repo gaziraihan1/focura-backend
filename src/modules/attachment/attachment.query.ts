@@ -1,7 +1,3 @@
-/**
- * attachment.query.ts
- * Responsibility: Read-only operations for attachments.
- */
 
 import { prisma } from '../../index.js';
 import { AttachmentAccess } from './attachment.access.js';
@@ -9,12 +5,7 @@ import { bytesToMB } from './attachment.utils.js';
 import type { AttachmentStats } from './attachment.types.js';
 
 export const AttachmentQuery = {
-  /**
-   * Returns all attachments for a task.
-   * Includes uploader info and file metadata.
-   */
   async getTaskAttachments(taskId: string, userId: string) {
-    // Verify user can access this task
     await AttachmentAccess.assertCanAttach(taskId, userId);
 
     return prisma.file.findMany({
@@ -28,18 +19,12 @@ export const AttachmentQuery = {
     });
   },
 
-  /**
-   * Returns attachment statistics for a workspace.
-   * Shows per-user upload counts and sizes.
-   * Only accessible to workspace OWNER/ADMIN.
-   */
   async getWorkspaceAttachmentStats(
     workspaceId: string,
     userId: string,
   ): Promise<AttachmentStats> {
     await AttachmentAccess.assertCanViewStats(workspaceId, userId);
 
-    // Get all files with uploader info
     const files = await prisma.file.findMany({
       where: { workspaceId },
       select: {
@@ -50,7 +35,6 @@ export const AttachmentQuery = {
       },
     });
 
-    // Aggregate by user
     const userMap = new Map<string, { name: string; fileCount: number; totalSize: number }>();
 
     for (const file of files) {
@@ -74,7 +58,6 @@ export const AttachmentQuery = {
       totalSizeMB: bytesToMB(data.totalSize),
     }));
 
-    // Sort by file count descending
     userUploads.sort((a, b) => b.fileCount - a.fileCount);
 
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);

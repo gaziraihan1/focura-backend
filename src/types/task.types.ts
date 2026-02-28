@@ -1,4 +1,3 @@
-// lib/types/task.types.ts
 
 export type TaskIntent =
   | 'EXECUTION'
@@ -52,8 +51,6 @@ export interface AddCommentDTO {
   userId: string;
   content: string;
 }
-
-// types/task.types.ts
 
 export interface Task {
   id: string;

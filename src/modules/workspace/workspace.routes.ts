@@ -1,9 +1,7 @@
-// src/modules/workspace/workspace.routes.ts
 import { Router } from 'express';
 import * as WorkspaceController from './workspace.controller.js';
 import { authenticate } from '../../middleware/auth.js';
 
-// Import attachment stats handler
 import { getAttachmentStats } from '../attachment/index.js';
 
 const router = Router();
@@ -22,7 +20,6 @@ router.delete('/:id/members/:memberId', WorkspaceController.removeMember);
 router.put('/:id/members/:memberId/role', WorkspaceController.updateMemberRole);
 router.get('/:id/stats', WorkspaceController.getStats);
 
-// Workspace attachment stats (admin only)
 router.get('/:workspaceId/attachments/stats', getAttachmentStats);
 
 router.post('/invitations/:token/accept', WorkspaceController.acceptInvitation);

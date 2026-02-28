@@ -1,10 +1,3 @@
-/**
- * label.mutation.ts
- * Responsibility: Write operations for the Label domain.
- *
- * Each mutation follows: authorize → validate business rules → write.
- * No HTTP concepts, no inline `any` types.
- */
 
 import { prisma } from '../../index.js';
 import type { CreateLabelDto, UpdateLabelDto } from './label.types.js';
@@ -13,10 +6,6 @@ import { labelListInclude, taskLabelInclude } from './label.selects.js';
 import { LabelAccess } from './label.access.js';
 
 export const LabelMutation = {
-  /**
-   * Creates a new label (personal or workspace-scoped).
-   * Enforces workspace membership and duplicate name check.
-   */
   async createLabel(data: CreateLabelDto) {
     if (data.workspaceId) {
       const member = await prisma.workspaceMember.findFirst({
@@ -40,10 +29,6 @@ export const LabelMutation = {
     });
   },
 
-  /**
-   * Updates an existing label.
-   * Only creator, workspace owner, or workspace ADMIN can edit.
-   */
   async updateLabel(labelId: string, userId: string, data: UpdateLabelDto) {
     const existingLabel = await prisma.label.findUnique({
       where:   { id: labelId },
@@ -59,7 +44,6 @@ export const LabelMutation = {
       );
     }
 
-    // Only check for duplicates if the name is actually changing
     if (data.name && data.name !== existingLabel.name) {
       await LabelAccess.assertNoDuplicateName(
         data.name,
@@ -80,9 +64,6 @@ export const LabelMutation = {
     });
   },
 
-  /**
-   * Deletes a label and returns how many tasks were affected.
-   */
   async deleteLabel(labelId: string, userId: string) {
     const label = await prisma.label.findUnique({
       where:   { id: labelId },
@@ -103,10 +84,6 @@ export const LabelMutation = {
     return { tasksAffected: label._count.tasks };
   },
 
-  /**
-   * Associates a label with a task.
-   * Throws ConflictError if the association already exists.
-   */
   async addLabelToTask(labelId: string, taskId: string, userId: string) {
     await LabelAccess.assertTaskAccess(taskId, userId);
 
@@ -128,10 +105,6 @@ export const LabelMutation = {
     });
   },
 
-  /**
-   * Removes a label from a task.
-   * Throws NotFoundError if the association doesn't exist.
-   */
   async removeLabelFromTask(labelId: string, taskId: string, userId: string) {
     await LabelAccess.assertTaskAccess(taskId, userId);
 

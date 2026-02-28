@@ -1,21 +1,7 @@
-/**
- * task.activity.ts
- * Responsibility: Activity log entries specific to Task mutations.
- *
- * The original had `prisma.activity.create()` calls embedded directly
- * inside createTask, updateTask, updateTaskStatus, and deleteTask.
- * All extracted here — never throws to the caller.
- *
- * All functions are fire-and-forget (void promises).
- * A failed activity log must never break a successful mutation.
- */
 
 import { prisma } from '../../index.js';
 
 export const TaskActivity = {
-  /**
-   * Logs that a task was created.
-   */
   async logCreated(params: {
     taskId:        string;
     taskTitle:     string;
@@ -47,9 +33,6 @@ export const TaskActivity = {
     }
   },
 
-  /**
-   * Logs that a task's status was changed.
-   */
   async logStatusChanged(params: {
     taskId:      string;
     taskTitle:   string;
@@ -79,9 +62,6 @@ export const TaskActivity = {
     }
   },
 
-  /**
-   * Logs that a task was updated (generic update — not status-specific).
-   */
   async logUpdated(params: {
     taskId:      string;
     taskTitle:   string;
@@ -109,9 +89,6 @@ export const TaskActivity = {
     }
   },
 
-  /**
-   * Logs that a task was deleted.
-   */
   async logDeleted(params: {
     taskId:      string;
     taskTitle:   string;

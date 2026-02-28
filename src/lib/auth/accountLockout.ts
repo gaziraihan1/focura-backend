@@ -1,6 +1,3 @@
-// backend/src/lib/auth/accountLockout.ts
-// STATUS: CREATE — hard account lockout after N failed login attempts.
-// Rate limiting slows attackers. Lockout STOPS them completely.
 
 import { Redis } from "@upstash/redis";
 
@@ -14,19 +11,13 @@ const redis: Redis | null =
 
 const devFailures = new Map<string, { count: number; lockedUntil?: number }>();
 
-const MAX_FAILURES    = 10;           // lock after 10 bad attempts
-const LOCKOUT_SECONDS = 15 * 60;      // 15 minute lockout
-const WINDOW_SECONDS  = 60 * 60;      // failure counter resets after 1 hour
+const MAX_FAILURES    = 10;
+const LOCKOUT_SECONDS = 15 * 60;
+const WINDOW_SECONDS  = 60 * 60;
 const PREFIX          = "focura:lockout";
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/**
- * Call on every failed login attempt.
- * Returns { locked: true, unlocksAt } if account is now locked.
- */
 export async function recordFailedAttempt(
-  identifier: string // email or userId
+  identifier: string
 ): Promise<{ locked: boolean; unlocksAt?: Date; attempts: number }> {
   if (redis) {
     return recordFailedRedis(identifier);
@@ -34,9 +25,6 @@ export async function recordFailedAttempt(
   return recordFailedDev(identifier);
 }
 
-/**
- * Call on successful login to clear the failure counter.
- */
 export async function clearFailedAttempts(identifier: string): Promise<void> {
   if (redis) {
     await redis.del(`${PREFIX}:failures:${identifier}`);
@@ -46,9 +34,6 @@ export async function clearFailedAttempts(identifier: string): Promise<void> {
   }
 }
 
-/**
- * Check if an account is currently locked before processing login.
- */
 export async function isAccountLocked(
   identifier: string
 ): Promise<{ locked: boolean; unlocksAt?: Date }> {
@@ -67,21 +52,17 @@ export async function isAccountLocked(
   return { locked: true, unlocksAt: new Date(entry.lockedUntil) };
 }
 
-// ─── Redis Implementation ─────────────────────────────────────────────────────
-
 async function recordFailedRedis(
   identifier: string
 ): Promise<{ locked: boolean; unlocksAt?: Date; attempts: number }> {
   const failKey  = `${PREFIX}:failures:${identifier}`;
   const lockKey  = `${PREFIX}:locked:${identifier}`;
 
-  // Check if already locked
   const existingLock = await redis!.get<number>(lockKey);
   if (existingLock) {
     return { locked: true, unlocksAt: new Date(existingLock), attempts: MAX_FAILURES };
   }
 
-  // Increment failure counter
   const pipeline = redis!.pipeline();
   pipeline.incr(failKey);
   pipeline.expire(failKey, WINDOW_SECONDS);
@@ -97,15 +78,12 @@ async function recordFailedRedis(
   return { locked: false, attempts };
 }
 
-// ─── In-memory Dev Implementation ────────────────────────────────────────────
-
 function recordFailedDev(
   identifier: string
 ): { locked: boolean; unlocksAt?: Date; attempts: number } {
   const now   = Date.now();
   const entry = devFailures.get(identifier) || { count: 0 };
 
-  // Clear expired lockout
   if (entry.lockedUntil && now > entry.lockedUntil) {
     devFailures.delete(identifier);
     return { locked: false, attempts: 0 };

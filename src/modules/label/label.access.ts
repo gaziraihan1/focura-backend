@@ -1,17 +1,3 @@
-/**
- * label.access.ts
- * Responsibility: Authorization checks for the Label domain.
- *
- * The original had 4 private functions (`checkLabelAccess`, `checkLabelEditPermission`,
- * `checkDuplicateLabelName`, `checkTaskAccess`) defined at module scope in the
- * service file — mixed with service logic, untestable in isolation, and typed as `any`.
- *
- * Fixed here:
- *  - `label: any` in checkLabelEditPermission → typed with a Prisma-compatible shape.
- *  - `where: any` in checkDuplicateLabelName → typed as Record<string, unknown>.
- *  - checkLabelAccess + getLabel were two DB calls for the same record.
- *    assertLabelAccess now returns the label so callers reuse it (no double fetch).
- */
 
 import { prisma } from '../../index.js';
 import {
@@ -20,20 +6,12 @@ import {
   ConflictError,
 } from './label.types.js';
 
-/** Minimal label shape needed for permission checks */
 interface LabelForPermission {
   createdById: string;
   workspaceId: string | null;
 }
 
 export const LabelAccess = {
-  /**
-   * Verifies the user can view the label.
-   *  - Workspace label → user must be a workspace member.
-   *  - Personal label → user must be the creator.
-   *
-   * Returns the label so callers don't need to fetch it again.
-   */
   async assertLabelAccess(labelId: string, userId: string) {
     const label = await prisma.label.findUnique({
       where:   { id: labelId },
@@ -54,12 +32,6 @@ export const LabelAccess = {
     return label;
   },
 
-  /**
-   * Returns true if the user can edit or delete the label.
-   *  - Label creator always can.
-   *  - Workspace owner always can.
-   *  - Workspace ADMIN members can.
-   */
   async canEditLabel(label: LabelForPermission, userId: string): Promise<boolean> {
     if (label.createdById === userId) return true;
 
@@ -81,10 +53,6 @@ export const LabelAccess = {
     return false;
   },
 
-  /**
-   * Throws ConflictError if a label with the same name already exists
-   * in the same scope (workspace or personal).
-   */
   async assertNoDuplicateName(
     name: string,
     workspaceId: string | null | undefined,
@@ -114,10 +82,6 @@ export const LabelAccess = {
     }
   },
 
-  /**
-   * Verifies the user can access the task (created, assigned, or workspace member).
-   * Throws NotFoundError if not found or no access.
-   */
   async assertTaskAccess(taskId: string, userId: string) {
     const task = await prisma.task.findFirst({
       where: {

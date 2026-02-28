@@ -1,11 +1,3 @@
-/**
- * task.mutation.ts
- * Responsibility: Write operations for the Task domain.
- *
- * Each mutation follows: validate → authorize → write → fire callbacks.
- * Callbacks (activity logging, notifications) are passed in by the controller.
- * This module never imports activity or notification helpers directly.
- */
 
 import { prisma } from "../../index.js";
 import type { CreateTaskInput, UpdateTaskInput } from "./task.types.js";
@@ -13,7 +5,6 @@ import { taskFullInclude, taskWithAssigneesInclude } from "./task.selects.js";
 import { TaskAccess } from "./task.access.js";
 import { getTimeStatus } from "./task.utils.js";
 
-// Callback signatures
 type OnTaskCreated = (data: {
   task: any;
   assigneeIds: string[];
@@ -33,7 +24,6 @@ type OnCommentAdded = (data: {
 
 export const TaskMutation = {
   async createTask(data: CreateTaskInput, onCreated?: OnTaskCreated) {
-    // Validation
     if (!data.title?.trim()) throw new Error("Task title is required");
     if (
       data.focusLevel !== undefined &&
@@ -48,7 +38,6 @@ export const TaskMutation = {
       throw new Error("Too many assignees reduce task focus");
     }
 
-    // Resolve workspace and validate project access
     let finalWorkspaceId: string | null = null;
 
     if (data.projectId) {
@@ -68,14 +57,12 @@ export const TaskMutation = {
       finalWorkspaceId = project.workspaceId;
     }
 
-    // Auto-compute priority based on due date
     let computedPriority = data.priority ?? "MEDIUM";
     if (!data.priority && data.dueDate) {
       const hoursLeft = (new Date(data.dueDate).getTime() - Date.now()) / 36e5;
       if (hoursLeft <= 24) computedPriority = "HIGH";
     }
 
-    // Build task data
     const taskData: any = {
       title: data.title,
       description: data.description,
@@ -114,7 +101,6 @@ export const TaskMutation = {
 
     console.log(`✨ Task created: "${task.title}" (ID: ${task.id})`);
 
-    // Fire callback (activity logging + notifications)
     if (onCreated) {
       onCreated({ task, assigneeIds: data.assigneeIds || [] }).catch((err) =>
         console.error("Post-creation callback failed:", err),
@@ -130,7 +116,6 @@ export const TaskMutation = {
     data: UpdateTaskInput,
     onUpdated?: OnTaskUpdated,
   ) {
-    // Check permissions
     const permission = await TaskAccess.checkEditPermission(taskId, userId);
     if (!permission.canEdit) {
       throw new Error(
@@ -178,7 +163,6 @@ export const TaskMutation = {
 
     console.log(`✏️  Task updated: "${task.title}" (ID: ${task.id})`);
 
-    // Handle assignee updates
     let addedAssigneeIds: string[] = [];
     if (data.assigneeIds !== undefined) {
       const existingIds = existingTask.assignees.map((a) => a.userId);
@@ -194,7 +178,6 @@ export const TaskMutation = {
       }
     }
 
-    // Handle label updates
     if (data.labelIds !== undefined) {
       await prisma.taskLabel.deleteMany({ where: { taskId } });
       if (data.labelIds.length > 0) {
@@ -204,7 +187,6 @@ export const TaskMutation = {
       }
     }
 
-    // Fire callback
     if (onUpdated) {
       onUpdated({
         task,

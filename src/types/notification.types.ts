@@ -1,4 +1,3 @@
-// types/notification.types.ts
 import { NotificationType } from "@prisma/client";
 
 export interface CreateNotificationDTO {
@@ -29,7 +28,6 @@ export interface NotificationWithSender {
   } | null;
 }
 
-// Notification configuration
 export const NOTIFICATION_CONFIG = {
   TASK_DUE_REMINDERS: [
     { label: "6h", ms: 6 * 60 * 60 * 1000 },
@@ -47,7 +45,6 @@ export const NOTIFICATION_CONFIG = {
   },
 } as const;
 
-// Notification templates
 export const NOTIFICATION_TEMPLATES = {
   TASK_ASSIGNED: (taskTitle: string, assignerName: string) => ({
     title: "New Task Assigned",

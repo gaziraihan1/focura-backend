@@ -1,20 +1,3 @@
-/**
- * dailyTask.controller.ts
- * Responsibility: HTTP layer for the DailyTask domain.
- *
- * Each handler:
- *  1. Parses the request via a Zod schema.
- *  2. Calls the appropriate service.
- *  3. Sends the response.
- *
- * Improvements over the original:
- *  - Manual if-checks for taskId/type replaced with Zod schemas.
- *  - Error message matching (`includes('already have')`) extracted to
- *    a single `mapErrorToStatus` function instead of duplicated if-chains.
- *  - `removeDailyTask` no longer returns `{ success, message }` from the
- *    service — HTTP concerns stay in the HTTP layer.
- *  - `console.log` debug lines removed (add your logger here if needed).
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -28,9 +11,6 @@ import {
   dailyTaskStatsSchema,
 } from './dailyTask.validators.js';
 
-// ─── Error helpers ─────────────────────────────────────────────────────────────
-
-/** Maps domain error messages to the correct HTTP status code. */
 function mapErrorToStatus(message: string): number {
   if (message.includes('already have a primary task'))              return 409;
   if (message.includes('not found'))                                return 404;
@@ -54,12 +34,6 @@ function handleError(res: Response, label: string, error: unknown): void {
   res.status(500).json({ success: false, message: `Failed to ${label}` });
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-/**
- * GET /daily-tasks?date=2026-02-09
- * Returns the primary and secondary tasks for the given day (defaults to today).
- */
 export const getDailyTasks = async (req: AuthRequest, res: Response) => {
   try {
     const { date } = getDailyTasksSchema.parse(req.query);
@@ -83,11 +57,6 @@ export const getDailyTasks = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * POST /daily-tasks
- * Body: { taskId, type: 'PRIMARY' | 'SECONDARY', date? }
- * Adds a task to the user's daily list.
- */
 export const addDailyTask = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId, type, date } = addDailyTaskSchema.parse(req.body);
@@ -110,10 +79,6 @@ export const addDailyTask = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * DELETE /daily-tasks/:taskId?date=...
- * Removes a task from the user's daily list for the given day.
- */
 export const removeDailyTask = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId }  = req.params;
@@ -132,10 +97,6 @@ export const removeDailyTask = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * POST /daily-tasks/clear-expired
- * Bulk-deletes all expired daily tasks (cron/admin endpoint).
- */
 export const clearExpiredDailyTasks = async (req: AuthRequest, res: Response) => {
   try {
     const result = await DailyTaskMutation.clearExpiredDailyTasks();
@@ -150,10 +111,6 @@ export const clearExpiredDailyTasks = async (req: AuthRequest, res: Response) =>
   }
 };
 
-/**
- * GET /daily-tasks/stats?startDate=...&endDate=...
- * Returns completion-rate stats (defaults to last 30 days).
- */
 export const getDailyTaskStats = async (req: AuthRequest, res: Response) => {
   try {
     const { startDate, endDate } = dailyTaskStatsSchema.parse(req.query);

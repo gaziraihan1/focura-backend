@@ -1,7 +1,3 @@
-/**
- * fileManagement.query.ts
- * Read operations for workspace file management.
- */
 
 import { prisma } from '../../index.js';
 import { FileManagementAccess } from './fileManagement.access.js';
@@ -105,7 +101,7 @@ export const FileManagementQuery = {
     const isAdmin = await FileManagementAccess.isWorkspaceAdmin(userId, workspaceId);
 
     if (!isAdmin) {
-      return []; // Non-admins can't see this
+      return [];
     }
 
     const uploaders = await prisma.file.groupBy({

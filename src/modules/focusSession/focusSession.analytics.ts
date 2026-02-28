@@ -1,21 +1,8 @@
-/**
- * focusSession.analytics.ts
- * Responsibility: Aggregation and streak calculations for the FocusSession domain.
- *
- * Separated from focusSession.query.ts because:
- *  - Stats use COUNT + SUM aggregate queries — different DB profile from row fetches.
- *  - getFocusStreak is a pure algorithmic calculation on top of raw date data.
- *  - These are candidates for independent caching (e.g. Redis TTL of 5 minutes).
- */
 
 import { prisma } from '../../index.js';
 import type { GetFocusStatsInput, FocusStats } from './focusSession.types.js';
 
 export const FocusSessionAnalytics = {
-  /**
-   * Returns aggregate focus statistics for a user.
-   * Date range is optional — omitting it returns all-time stats.
-   */
   async getStats(input: GetFocusStatsInput): Promise<FocusStats> {
     const where = {
       userId:    input.userId,
@@ -57,13 +44,6 @@ export const FocusSessionAnalytics = {
     };
   },
 
-  /**
-   * Returns the number of consecutive days (ending today) on which the user
-   * completed at least one focus session.
-   *
-   * Algorithm: fetch all completed session dates, de-duplicate by day,
-   * then walk backwards from today until a gap is found.
-   */
   async getFocusStreak(userId: string): Promise<number> {
     const sessions = await prisma.focusSession.findMany({
       where:   { userId, completed: true },
@@ -73,7 +53,6 @@ export const FocusSessionAnalytics = {
 
     if (sessions.length === 0) return 0;
 
-    // Build a set of ISO date strings that have at least one session
     const sessionDates = new Set(
       sessions.map((s) => s.startedAt.toISOString().split('T')[0]),
     );

@@ -1,7 +1,3 @@
-/**
- * comment/index.ts
- * Responsibility: Public API surface of the Comment module.
- */
 
 export { CommentQuery }    from './comment.query.js';
 export { CommentMutation } from './comment.mutation.js';

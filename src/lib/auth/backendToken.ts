@@ -1,6 +1,3 @@
-// backend/src/lib/auth/backendToken.ts
-// STATUS: MOVED FROM FRONTEND — backend now owns ALL token signing.
-// The frontend no longer imports this file or holds the private key.
 
 import jwt from "jsonwebtoken";
 import fs from "fs";
@@ -11,10 +8,8 @@ export const ACCESS_TOKEN_EXPIRY = "15m";
 export const REFRESH_TOKEN_EXPIRY = "7d";
 export const SSE_TOKEN_EXPIRY = "30s";
 
-// Increment to globally invalidate ALL tokens (e.g. after a key breach)
 export const CURRENT_TOKEN_VERSION = 1;
 
-// ─── Load RSA Keys ─────────────────────────────────────────────────────────
 let privateKey: string;
 let publicKey: string;
 
@@ -42,7 +37,6 @@ try {
   throw new Error("JWT keys not found. Run: node scripts/generate-keys.js");
 }
 
-// ─── Types ─────────────────────────────────────────────────────────────────
 export interface TokenPayload {
   id: string;
   email: string;
@@ -60,7 +54,6 @@ export interface TokenPair {
   refreshTokenExpiry: number;
 }
 
-// ─── Creators ──────────────────────────────────────────────────────────────
 export function createAccessToken(p: {
   id: string;
   email: string;
@@ -129,11 +122,6 @@ export function createTokenPair(p: {
   };
 }
 
-/**
- * One-time SSE handshake token (30s TTL).
- * Issued by backend /auth/sse-token, consumed once on SSE connect.
- * Prevents passing long-lived access tokens in query params.
- */
 export function createSseToken(userId: string): string {
   return jwt.sign(
     {
@@ -152,7 +140,6 @@ export function createSseToken(userId: string): string {
   );
 }
 
-// ─── Verifier ──────────────────────────────────────────────────────────────
 export function verifyToken(
   token: string,
   expectedType?: TokenPayload["type"],

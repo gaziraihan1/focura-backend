@@ -1,4 +1,3 @@
-// lib/utils/error.util.ts
 
 export class AppError extends Error {
   constructor(

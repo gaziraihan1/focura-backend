@@ -1,19 +1,9 @@
-/**
- * attachment.validation.ts
- * Responsibility: Tier-based upload validation and rate limiting.
- */
 
 import { prisma } from '../../index.js';
 import { getLimitsForPlan, bytesToMB, getTodayStart, getTodayEnd } from './attachment.utils.js';
 import type { UploadCheckResult } from './attachment.types.js';
 
 export const AttachmentValidation = {
-  /**
-   * Comprehensive upload validation checking all tier-based limits:
-   *  1. File size limit
-   *  2. Daily upload count limit
-   *  3. Rate limiting (time between uploads)
-   */
   async canUpload(
     userId: string,
     workspaceId: string,
@@ -23,7 +13,6 @@ export const AttachmentValidation = {
     const limits = getLimitsForPlan(workspacePlan);
     const fileSizeMB = bytesToMB(fileSizeBytes);
 
-    // Check 1: File size limit
     if (fileSizeMB > limits.maxFileSizeMB) {
       return {
         allowed: false,
@@ -35,7 +24,6 @@ export const AttachmentValidation = {
     const todayStart = getTodayStart();
     const todayEnd = getTodayEnd();
 
-    // Check 2: Daily upload count
     const todayUploads = await prisma.file.count({
       where: {
         uploadedById: userId,
@@ -53,7 +41,6 @@ export const AttachmentValidation = {
       };
     }
 
-    // Check 3: Rate limiting (FREE tier only)
     if (limits.minUploadIntervalSeconds > 0) {
       const lastUpload = await prisma.file.findFirst({
         where: { uploadedById: userId, workspaceId },

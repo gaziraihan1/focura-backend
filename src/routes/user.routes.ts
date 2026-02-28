@@ -1,4 +1,3 @@
-// routes/user.routes.ts
 import { Router, Response } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { getUserProfile, updateUserProfile } from '../controllers/user.controller.js';
@@ -7,16 +6,12 @@ import { prisma } from '../index.js';
 
 const router = Router();
 
-// GET /api/user/profile - Get user profile
 router.get('/profile', authenticate, getUserProfile);
 
-// PUT /api/user/profile - Update user profile
 router.put('/profile', authenticate, updateUserProfile);
 
-// GET /api/user/workspace-members - Get workspace members
 router.get('/workspace-members', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    // Get all workspace members where user has access
     const members = await prisma.user.findMany({
       where: {
         workspaceMembers: {
@@ -51,6 +46,5 @@ router.get('/workspace-members', authenticate, async (req: AuthRequest, res: Res
     });
   }
 });
-
 
 export default router;

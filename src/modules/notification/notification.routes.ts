@@ -1,8 +1,7 @@
-// src/modules/notification/notification.routes.ts
 
-import { Router } from 'express';
-import { authenticate } from '../../middleware/auth.js';
-import { notificationStream } from '../../sockets/notification.stream.js';
+import { Router } from "express";
+import { authenticate } from "../../middleware/auth.js";
+import { notificationStream } from "../../sockets/notification.stream.js";
 import {
   getNotifications,
   getUnreadCount,
@@ -10,21 +9,19 @@ import {
   markAllAsRead,
   deleteNotification,
   deleteAllRead,
-} from './notification.controller.js';
+} from "./notification.controller.js";
 
 const router = Router();
 
-// SSE stream (no auth - handled in stream itself)
-router.get('/stream/:userId', notificationStream);
+router.get("/stream", notificationStream);
 
-// All authenticated routes
-router.use(authenticate); // ← ADD THIS LINE
+router.use(authenticate);
 
-router.get('/', getNotifications);
-router.get('/unread-count', getUnreadCount);
-router.patch('/:id/read', markAsRead);
-router.patch('/read-all', markAllAsRead);
-router.delete('/:id', deleteNotification);
-router.delete('/read/all', deleteAllRead);
+router.get("/", getNotifications);
+router.get("/unread-count", getUnreadCount);
+router.patch("/:id/read", markAsRead);
+router.patch("/read-all", markAllAsRead);
+router.delete("/read/all", deleteAllRead);
+router.delete("/:id", deleteNotification);
 
 export default router;

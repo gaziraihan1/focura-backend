@@ -1,6 +1,3 @@
-/**
- * notification.controller.ts
- */
 
 import type { Response } from "express";
 import type { AuthRequest } from "../../middleware/auth.js";

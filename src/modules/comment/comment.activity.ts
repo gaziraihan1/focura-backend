@@ -1,10 +1,3 @@
-/**
- * comment.activity.ts
- * Responsibility: Activity log entries for Comment mutations.
- *
- * Same pattern as task.activity.ts — all functions are fire-and-forget.
- * A failed activity log never breaks a successful mutation.
- */
 
 import { prisma } from '../../index.js';
 

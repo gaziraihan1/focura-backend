@@ -1,10 +1,5 @@
-/**
- * notification.types.ts
- */
 
 import { NotificationType } from "@prisma/client";
-
-
 
 export interface CreateNotificationInput {
   userId: string;

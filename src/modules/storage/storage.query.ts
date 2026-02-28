@@ -1,28 +1,3 @@
-/**
- * storage.query.ts
- * Responsibility: Read-only SELECT operations for the Storage domain.
- *
- * Performance fixes applied:
- *
- * 1. getWorkspaceStorageInfo — was 3 sequential queries:
- *    member check → workspace fetch → findMany files → JS reduce
- *    Now: member + workspace in parallel, then prisma.file.aggregate(_sum)
- *    instead of findMany + JS reduce. Let the DB do the math.
- *
- * 2. getMyContribution — was 2 separate findMany queries:
- *    userFiles → allFiles → two JS reduces
- *    Now: both sums fetched in parallel with aggregate(_sum).
- *
- * 3. getUserWorkspacesSummary — was severe N+1:
- *    findMany memberships → Promise.all(map → findMany files per workspace)
- *    With 5 workspaces: 6+ queries. With 20: 21+ queries.
- *    Now: 2 queries total — memberships + single groupBy on file table.
- *    Storage per workspace resolved entirely in memory.
- *
- * 4. getWorkspaceStorageInfo no longer double-fetches in canUploadFile.
- *    StorageQuery.getStorageInfo() accepts the workspace object directly
- *    when called from canUploadFile (which already has it).
- */
 
 import { prisma } from '../../index.js';
 import type {
@@ -39,12 +14,6 @@ import { StorageAccess } from './storage.access.js';
 import { toMB, getCategoryFromMimeType } from './storage.utils.js';
 
 export const StorageQuery = {
-  /**
-   * Returns storage usage info for a workspace.
-   *
-   * Performance: member + workspace fetched in parallel via assertMemberWithWorkspace.
-   * File size sum computed with prisma.aggregate (DB-side) instead of findMany + JS reduce.
-   */
   async getWorkspaceStorageInfo(workspaceId: string, userId: string): Promise<StorageInfo> {
     const { workspace } = await StorageAccess.assertMemberWithWorkspace(userId, workspaceId);
 
@@ -66,12 +35,6 @@ export const StorageQuery = {
     };
   },
 
-  /**
-   * Returns storage split by file category (task attachment / project file / workspace file).
-   *
-   * Fetches only the 3 fields needed for classification — no size computation in JS
-   * beyond the single-pass loop.
-   */
   async getWorkspaceStorageBreakdown(workspaceId: string, userId: string): Promise<StorageBreakdown> {
     await StorageAccess.assertMember(userId, workspaceId);
 
@@ -100,10 +63,6 @@ export const StorageQuery = {
     };
   },
 
-  /**
-   * Returns per-user storage contributions (OWNER/ADMIN only).
-   * Groups files in memory — one DB query for all files with uploader info.
-   */
   async getUserContributions(
     workspaceId: string,
     requestingUserId: string,
@@ -154,12 +113,6 @@ export const StorageQuery = {
       .sort((a, b) => b.usageMB - a.usageMB);
   },
 
-  /**
-   * Returns the current user's storage contribution to a workspace.
-   *
-   * Performance: was 2 separate findMany → 2 JS reduces.
-   * Now: 2 parallel aggregate queries — DB does both sums simultaneously.
-   */
   async getMyContribution(workspaceId: string, userId: string): Promise<MyContribution> {
     await StorageAccess.assertMember(userId, workspaceId);
 
@@ -187,9 +140,6 @@ export const StorageQuery = {
     };
   },
 
-  /**
-   * Returns the N largest files in a workspace with full metadata.
-   */
   async getLargestFiles(
     workspaceId: string,
     userId: string,
@@ -213,12 +163,6 @@ export const StorageQuery = {
     return files.map((file) => ({ ...file, sizeMB: toMB(file.size) }));
   },
 
-  /**
-   * Returns a day-by-day cumulative storage trend for the last N days.
-   *
-   * Two queries: files uploaded before the window (baseline) and within
-   * the window. The cumulative sum is built in memory with a forward pass.
-   */
   async getStorageTrend(
     workspaceId: string,
     userId: string,
@@ -241,7 +185,6 @@ export const StorageQuery = {
       }),
     ]);
 
-    // Build a map of dateKey → cumulative bytes at end of that day
     let cumulative = baselineAgg._sum.size ?? 0;
     const trendMap = new Map<string, number>();
 
@@ -251,7 +194,6 @@ export const StorageQuery = {
       trendMap.set(key, cumulative);
     }
 
-    // Walk the date range, carrying forward the last known value
     const trend: StorageTrend[] = [];
     let currentSize = baselineAgg._sum.size ?? 0;
 
@@ -268,9 +210,6 @@ export const StorageQuery = {
     return trend;
   },
 
-  /**
-   * Returns file count and total size grouped by MIME type, sorted by size desc.
-   */
   async getFileTypeBreakdown(workspaceId: string, userId: string): Promise<FileTypeBreakdown[]> {
     await StorageAccess.assertMember(userId, workspaceId);
 
@@ -298,15 +237,6 @@ export const StorageQuery = {
       .sort((a, b) => b.sizeMB - a.sizeMB);
   },
 
-  /**
-   * Returns a storage summary for every workspace the user belongs to.
-   *
-   * Performance: was N+1 — one findMany per workspace.
-   * Now: 2 queries total.
-   *  Query 1: all memberships with workspace metadata.
-   *  Query 2: file sizes grouped by workspaceId (single groupBy).
-   *  Storage per workspace resolved in memory with a Map lookup.
-   */
   async getUserWorkspacesSummary(userId: string): Promise<WorkspaceSummary[]> {
     const [memberships, fileSizesByWorkspace] = await Promise.all([
       prisma.workspaceMember.findMany({
@@ -318,7 +248,6 @@ export const StorageQuery = {
         },
       }),
 
-      // Single groupBy to get total bytes + file count per workspace
       prisma.file.groupBy({
         by:    ['workspaceId'],
         _sum:  { size: true },
@@ -326,7 +255,6 @@ export const StorageQuery = {
       }),
     ]);
 
-    // Build a lookup map: workspaceId → { totalBytes, fileCount }
     const sizeMap = new Map(
       fileSizesByWorkspace.map((row) => [
         row.workspaceId,

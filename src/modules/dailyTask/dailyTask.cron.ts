@@ -1,10 +1,3 @@
-/**
- * dailyTask.cron.ts
- * Responsibility: Scheduled cleanup job for expired daily tasks.
- *
- * Runs at 00:01 UTC daily to delete all daily tasks with date < today.
- * Called from src/cron/index.ts during server startup.
- */
 
 import cron from 'node-cron';
 import { DailyTaskMutation } from './dailyTask.mutation.js';

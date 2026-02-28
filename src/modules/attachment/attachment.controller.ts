@@ -1,7 +1,3 @@
-/**
- * attachment.controller.ts
- * Responsibility: HTTP layer for attachment operations.
- */
 
 import type { Response } from 'express';
 import type { AuthRequest } from '../../middleware/auth.js';
@@ -11,26 +7,22 @@ import { AttachmentMutation } from './attachment.mutation.js';
 function handleError(res: Response, label: string, error: unknown): void {
   if (error instanceof Error) {
     const msg = error.message;
-    
-    // Tier limit errors
+
     if (msg.includes('limit') || msg.includes('wait')) {
       res.status(429).json({ success: false, message: msg });
       return;
     }
-    
-    // Permission errors
+
     if (msg.includes('permission') || msg.includes('cannot')) {
       res.status(403).json({ success: false, message: msg });
       return;
     }
-    
-    // Not found
+
     if (msg.includes('not found')) {
       res.status(404).json({ success: false, message: msg });
       return;
     }
-    
-    // Generic error
+
     console.error(`${label} error:`, error);
     res.status(500).json({ success: false, message: `Failed to ${label}` });
   } else {
@@ -39,7 +31,6 @@ function handleError(res: Response, label: string, error: unknown): void {
   }
 }
 
-/** GET /api/tasks/:taskId/attachments */
 export const getTaskAttachments = async (req: AuthRequest, res: Response) => {
   try {
     const attachments = await AttachmentQuery.getTaskAttachments(
@@ -52,7 +43,6 @@ export const getTaskAttachments = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** POST /api/tasks/:taskId/attachments */
 export const addAttachment = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.file) {
@@ -76,11 +66,10 @@ export const addAttachment = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** DELETE /api/tasks/:taskId/attachments/:attachmentId */
 export const deleteAttachment = async (req: AuthRequest, res: Response) => {
   try {
     const fileId = req.params.attachmentId;
-    
+
     if (!fileId) {
       res.status(400).json({ success: false, message: 'File ID is required' });
       return;
@@ -93,7 +82,6 @@ export const deleteAttachment = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /api/workspaces/:workspaceId/attachments/stats */
 export const getAttachmentStats = async (req: AuthRequest, res: Response) => {
   try {
     const stats = await AttachmentQuery.getWorkspaceAttachmentStats(

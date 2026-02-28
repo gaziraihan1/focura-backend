@@ -1,4 +1,3 @@
-// lib/repositories/task.repository.ts
 
 import { prisma } from "../index.js";
 
@@ -75,7 +74,7 @@ class TaskRepository {
 
   async update(id: string, data: any) {
     const updateData: any = {};
-    
+
     if (data.title !== undefined) updateData.title = data.title;
     if (data.description !== undefined) updateData.description = data.description;
     if (data.status !== undefined) updateData.status = data.status;

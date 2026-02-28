@@ -1,6 +1,3 @@
-/**
- * workspace.types.ts
- */
 
 export type WorkspaceRole = "OWNER" | "ADMIN" | "MEMBER" | "GUEST";
 export type WorkspacePlan = "FREE" | "PRO" | "BUSINESS" | "ENTERPRISE";

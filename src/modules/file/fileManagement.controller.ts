@@ -1,7 +1,3 @@
-/**
- * fileManagement.controller.ts
- * HTTP handlers for file management operations.
- */
 
 import type { Response } from 'express';
 import type { AuthRequest } from '../../middleware/auth.js';

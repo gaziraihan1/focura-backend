@@ -1,6 +1,3 @@
-/**
- * workspace.validators.ts
- */
 import { z } from "zod";
 
 export const createWorkspaceSchema = z.object({

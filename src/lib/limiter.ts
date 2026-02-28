@@ -1,4 +1,3 @@
-// backend/src/lib/limiter.ts
 import { Redis } from "@upstash/redis";
 
 export interface RateLimitResult {

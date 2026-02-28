@@ -1,18 +1,6 @@
-/**
- * dailyTask.types.ts
- * Responsibility: All types and interfaces for the DailyTask domain.
- *
- * Rules:
- *  - No imports from this module, no logic, no side effects.
- *  - Inline anonymous param objects from the original service
- *    are replaced with named interfaces here.
- */
 
-// ─── Domain enums ──────────────────────────────────────────────────────────────
 
 export type DailyTaskType = 'PRIMARY' | 'SECONDARY';
-
-// ─── Query params ──────────────────────────────────────────────────────────────
 
 export interface GetDailyTasksParams {
   userId: string;
@@ -24,8 +12,6 @@ export interface GetDailyTaskStatsParams {
   startDate: Date;
   endDate: Date;
 }
-
-// ─── Mutation params ──────────────────────────────────────────────────────────
 
 export interface AddDailyTaskParams {
   userId: string;
@@ -39,8 +25,6 @@ export interface RemoveDailyTaskParams {
   taskId: string;
   date?: Date;
 }
-
-// ─── Response shapes ──────────────────────────────────────────────────────────
 
 export interface DailyTaskStats {
   totalDays: number;

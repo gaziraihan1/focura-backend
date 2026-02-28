@@ -1,12 +1,3 @@
-/**
- * activity.mutation.ts
- * Responsibility: Write operations for the Activity domain.
- *
- * Rules:
- *  - Only CREATE, UPDATE, DELETE operations here.
- *  - Authorization is delegated to ActivityAccess — never embedded inline.
- *  - No HTTP concepts, no response formatting.
- */
 
 import { prisma } from '../../index.js';
 import type { CreateActivityParams, ClearActivitiesFilters } from './activity.types.js';
@@ -14,10 +5,6 @@ import { activityFullInclude } from './activity.selects.js';
 import { ActivityAccess } from './activity.access.js';
 
 export const ActivityMutation = {
-  /**
-   * Creates a new activity log entry.
-   * Returns the full activity with user, workspace and task context.
-   */
   async createActivity(params: CreateActivityParams) {
     return prisma.activity.create({
       data: {
@@ -33,13 +20,7 @@ export const ActivityMutation = {
     });
   },
 
-  /**
-   * Deletes a single activity record.
-   * Delegates permission check to ActivityAccess.assertCanDelete.
-   * Throws if the activity doesn't exist or caller lacks permission.
-   */
   async deleteActivity(activityId: string, callerId: string): Promise<void> {
-    // Authorization is checked here — before any DB write
     await ActivityAccess.assertCanDelete(callerId, activityId);
 
     await prisma.activity.delete({
@@ -47,12 +28,6 @@ export const ActivityMutation = {
     });
   },
 
-  /**
-   * Bulk-deletes all activities belonging to a user.
-   * Optionally scoped to a workspace and/or capped at a cutoff date.
-   *
-   * Returns the count of deleted records.
-   */
   async clearUserActivities(
     userId: string,
     filters: ClearActivitiesFilters = {},

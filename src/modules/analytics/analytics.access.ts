@@ -1,17 +1,8 @@
-// analytics.access.ts
-/**
- * Access control for analytics endpoints.
- * Analytics are restricted to workspace ADMIN and OWNER roles only.
- */
 
 import { prisma } from '../../index.js';
 
 export const AnalyticsAccess = {
 
-  /**
-   * Assert that user is ADMIN or OWNER of the workspace
-   * This is the main access control for analytics endpoints
-   */
   async assertWorkspaceAdminOrOwner(userId: string, workspaceId: string) {
     const member = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId } },
@@ -29,9 +20,6 @@ export const AnalyticsAccess = {
     return member;
   },
 
-  /**
-   * Check if user has admin/owner access (without throwing)
-   */
   async isWorkspaceAdminOrOwner(userId: string, workspaceId: string): Promise<boolean> {
     const member = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId } },
@@ -41,9 +29,6 @@ export const AnalyticsAccess = {
     return member?.role === 'ADMIN' || member?.role === 'OWNER';
   },
 
-  /**
-   * Get list of workspace IDs where user is admin or owner
-   */
   async getUserAdminWorkspaces(userId: string): Promise<string[]> {
     const memberships = await prisma.workspaceMember.findMany({
       where: {

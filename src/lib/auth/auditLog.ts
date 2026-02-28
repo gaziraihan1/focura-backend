@@ -1,5 +1,3 @@
-// backend/src/lib/auth/auditLog.ts
-// STATUS: CREATE — structured security audit trail
 
 export type AuditEventType =
   | "LOGIN_SUCCESS" | "LOGIN_FAILED" | "LOGIN_BLOCKED"

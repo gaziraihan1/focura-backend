@@ -1,7 +1,3 @@
-/**
- * fileManagement.routes.ts
- * Route definitions for file management.
- */
 
 import { Router } from 'express';
 import { getFiles, deleteFile, getStats, getUploaders } from './fileManagement.controller.js';

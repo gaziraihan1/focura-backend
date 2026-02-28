@@ -1,9 +1,7 @@
-// controllers/user.controller.ts
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
 import { prisma } from '../index.js';
 
-// GET /api/user/profile
 export const getUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (!req.user?.id) {
@@ -56,8 +54,6 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Note: Storage is now workspace-specific
-    // Users should check /api/storage/workspaces for storage info
     res.status(200).json({
       success: true,
       data: {
@@ -73,7 +69,6 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
   }
 };
 
-// PUT /api/user/profile
 export const updateUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (!req.user?.id) {
@@ -86,7 +81,6 @@ export const updateUserProfile = async (req: AuthRequest, res: Response): Promis
 
     const { name, bio, image, timezone } = req.body;
 
-    // Validate input
     if (name !== undefined && typeof name !== 'string') {
       res.status(400).json({
         success: false,
@@ -111,7 +105,6 @@ export const updateUserProfile = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    // Build update data object
     const updateData: Record<string, string | null> = {};
     if (name !== undefined) updateData.name = name;
     if (bio !== undefined) updateData.bio = bio;

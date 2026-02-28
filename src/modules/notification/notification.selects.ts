@@ -1,6 +1,3 @@
-/**
- * notification.selects.ts
- */
 
 export const senderSelect = {
   id: true,

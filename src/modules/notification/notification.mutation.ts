@@ -1,6 +1,3 @@
-/**
- * notification.mutation.ts
- */
 
 import { prisma } from '../../index.js';
 import { notificationInclude } from './notification.selects.js';

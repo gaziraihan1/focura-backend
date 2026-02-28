@@ -1,6 +1,3 @@
-/**
- * workspace.selects.ts
- */
 
 export const ownerSelect = {
   id: true,

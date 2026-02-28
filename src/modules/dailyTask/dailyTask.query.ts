@@ -1,17 +1,8 @@
-/**
- * dailyTask.query.ts
- * Responsibility: Read-only SELECT operations for the DailyTask domain.
- *
- * Rules:
- *  - No writes, no auth checks, no activity logging.
- *  - Returns typed results using shared select fragments.
- */
 
 import { prisma } from '../../index.js';
 import type { GetDailyTasksParams, GetDailyTaskStatsParams, DailyTaskStats } from './dailyTask.types.js';
 import { taskFullInclude, taskStatsSelect } from './dailyTask.selects.js';
 
-/** Day boundary helpers — local to this file, no side effects */
 function startOfDay(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -25,10 +16,6 @@ function endOfDay(date: Date): Date {
 }
 
 export const DailyTaskQuery = {
-  /**
-   * Returns the user's primary and secondary tasks for a given day,
-   * ordered PRIMARY first then by addedAt.
-   */
   async getDailyTasks(params: GetDailyTasksParams) {
     const dayStart = startOfDay(params.date);
     const dayEnd   = endOfDay(params.date);
@@ -51,10 +38,6 @@ export const DailyTaskQuery = {
     };
   },
 
-  /**
-   * Returns completion-rate stats for a date range.
-   * Used for progress dashboards and cron-generated reports.
-   */
   async getDailyTaskStats(params: GetDailyTaskStatsParams): Promise<DailyTaskStats> {
     const dailyTasks = await prisma.dailyTask.findMany({
       where: {

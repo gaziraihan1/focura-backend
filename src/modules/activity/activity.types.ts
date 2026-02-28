@@ -1,12 +1,3 @@
-/**
- * activity.types.ts
- * Responsibility: All types and interfaces for the Activity domain.
- *
- * Rules:
- *  - No imports, no logic, no side effects.
- *  - Every other file in this module imports from here.
- *  - This file never imports from anywhere inside the module.
- */
 
 export type ActivityType =
   | 'CREATED'
@@ -28,8 +19,6 @@ export type EntityType =
   | 'FILE'
   | 'WORKSPACE'
   | 'MEMBER';
-
-// ─── Query filters ────────────────────────────────────────────────────────────
 
 export interface ActivityFilters {
   workspaceId?: string;
@@ -53,8 +42,6 @@ export interface ClearActivitiesFilters {
   before?: Date;
 }
 
-// ─── Mutation params ──────────────────────────────────────────────────────────
-
 export interface CreateActivityParams {
   action: ActivityType;
   entityType: EntityType;
@@ -64,8 +51,6 @@ export interface CreateActivityParams {
   taskId?: string;
   metadata?: Record<string, any>;
 }
-
-// ─── Response shapes ──────────────────────────────────────────────────────────
 
 export interface ActivityStats {
   total: number;

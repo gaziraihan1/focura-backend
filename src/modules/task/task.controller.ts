@@ -1,13 +1,3 @@
-/**
- * task.controller.ts
- * Responsibility: HTTP layer for the Task domain.
- *
- * Improvements:
- *  - Zod validation replaces inline type coercion
- *  - Activity/notification callbacks injected here (not in mutation)
- *  - Calendar recalc callback injected here (not in mutation)
- *  - Typed error handling
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -84,7 +74,6 @@ export const createTask = async (req: AuthRequest, res: Response) => {
 
     const task = await TaskMutation.createTask(
       { ...data, createdById: req.user!.id },
-      // onCreated callback — activity logging + notifications + calendar
       async ({ task, assigneeIds }) => {
         if (task.workspaceId) {
           void TaskActivity.logCreated({
@@ -155,7 +144,6 @@ export const updateTask = async (req: AuthRequest, res: Response) => {
         if (newStatus === 'COMPLETED' && oldStatus !== 'COMPLETED') {
           void TaskNotifications.notifyTaskCompleted({ taskId: task.id, taskTitle: task.title, userId: req.user!.id });
         }
-        // Calendar recalc
         const dates = new Set<Date>();
         if (oldTask.dueDate) dates.add(oldTask.dueDate);
         if (task.dueDate)    dates.add(task.dueDate);

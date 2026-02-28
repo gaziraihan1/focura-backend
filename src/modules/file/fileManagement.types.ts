@@ -1,7 +1,3 @@
-/**
- * fileManagement.types.ts
- * Types for workspace file management and filtering.
- */
 
 export interface FileWithDetails {
   id: string;

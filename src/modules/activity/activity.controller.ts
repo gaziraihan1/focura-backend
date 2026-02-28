@@ -1,19 +1,3 @@
-/**
- * activity.controller.ts
- * Responsibility: HTTP layer for the Activity domain.
- *
- * Each handler does exactly three things — nothing more:
- *  1. Parse and validate the incoming request (params, query, body).
- *  2. Call the appropriate service (Query / Mutation / Analytics).
- *  3. Format and send the HTTP response.
- *
- * Rules:
- *  - No Prisma calls. No SQL. No business logic.
- *  - No auth checks embedded here — access guards live in ActivityAccess
- *    and are called explicitly before the service call.
- *  - console.log removed in favour of structured logging patterns;
- *    replace with your logger (winston/pino) as needed.
- */
 
 import type { Response } from 'express';
 import type { AuthRequest } from '../../middleware/auth.js';
@@ -22,15 +6,11 @@ import { ActivityQuery }    from './activity.query.js';
 import { ActivityMutation } from './activity.mutation.js';
 import { ActivityAccess }   from './activity.access.js';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Parses a query string value to int, with a safe fallback. */
 const toInt = (value: unknown, fallback: number): number => {
   const parsed = parseInt(value as string, 10);
   return isNaN(parsed) ? fallback : parsed;
 };
 
-/** Sends a typed error response and returns void for early-return pattern. */
 const sendError = (
   res: Response,
   status: number,
@@ -44,12 +24,6 @@ const sendError = (
   });
 };
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-/**
- * GET /activities
- * Returns all activities visible to the authenticated user.
- */
 export const getActivities = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -77,10 +51,6 @@ export const getActivities = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * GET /activities/workspace/:workspaceId
- * Returns activities scoped to a specific workspace.
- */
 export const getWorkspaceActivities = async (req: AuthRequest, res: Response) => {
   try {
     const { workspaceId } = req.params;
@@ -110,10 +80,6 @@ export const getWorkspaceActivities = async (req: AuthRequest, res: Response) =>
   }
 };
 
-/**
- * GET /activities/task/:taskId
- * Returns activities scoped to a specific task.
- */
 export const getTaskActivities = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId } = req.params;
@@ -137,10 +103,6 @@ export const getTaskActivities = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * DELETE /activities/clear
- * Bulk-deletes the authenticated user's activities with optional filters.
- */
 export const clearActivities = async (req: AuthRequest, res: Response) => {
   try {
     const { workspaceId, before } = req.query;
@@ -160,10 +122,6 @@ export const clearActivities = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * DELETE /activities/:activityId
- * Deletes a single activity. Authorization enforced inside ActivityMutation.
- */
 export const deleteActivity = async (req: AuthRequest, res: Response) => {
   try {
     const { activityId } = req.params;

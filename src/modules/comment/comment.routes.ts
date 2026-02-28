@@ -1,10 +1,3 @@
-/**
- * comment.routes.ts
- * Responsibility: Route definitions for the Comment domain.
- *
- * Note: This router uses { mergeParams: true } because it's mounted
- * as a nested router under /tasks/:taskId/comments.
- */
 
 import { Router } from 'express';
 import {

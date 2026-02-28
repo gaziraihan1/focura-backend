@@ -1,10 +1,3 @@
-/**
- * comment.mutation.ts
- * Responsibility: Write operations for the Comment domain.
- *
- * Each mutation accepts an optional callback for activity logging.
- * The controller provides the callback, this module never imports ActivityService.
- */
 
 import { prisma } from '../../index.js';
 import type { CreateCommentInput, UpdateCommentInput } from './comment.types.js';
@@ -22,14 +15,10 @@ type OnCommentMutated = (data: {
 }) => Promise<void>;
 
 export const CommentMutation = {
-  /**
-   * Creates a new comment on a task.
-   */
   async createComment(
     input:     CreateCommentInput,
     onCreated?: OnCommentMutated,
   ) {
-    // Verify user can access the task
     await CommentAccess.assertTaskAccess(input.taskId, input.userId);
 
     const comment = await prisma.comment.create({
@@ -42,7 +31,6 @@ export const CommentMutation = {
       include: commentSimpleInclude,
     });
 
-    // Fire callback (activity logging)
     if (onCreated) {
       onCreated({
         commentId:   comment.id,
@@ -56,10 +44,6 @@ export const CommentMutation = {
     return comment;
   },
 
-  /**
-   * Updates an existing comment.
-   * Only the comment author can update.
-   */
   async updateComment(
     commentId: string,
     taskId:    string,
@@ -89,10 +73,6 @@ export const CommentMutation = {
     return updated;
   },
 
-  /**
-   * Deletes a comment.
-   * Only the comment author can delete.
-   */
   async deleteComment(
     commentId: string,
     taskId:    string,

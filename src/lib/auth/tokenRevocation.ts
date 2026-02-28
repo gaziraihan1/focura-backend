@@ -1,4 +1,3 @@
-// backend/src/lib/auth/tokenRevocation.ts
 import { Redis } from "@upstash/redis";
 
 let redis: Redis | null = null;
@@ -10,7 +9,6 @@ const devRevokedAccess = new Set<string>();
 const devRefreshTokens = new Map<string, string>();
 const devSseTokens     = new Map<string, string>();
 
-// ─── Access Token ─────────────────────────────────────────────────────────
 export async function revokeAccessToken(jti: string, expiresInSeconds: number): Promise<void> {
   if (redis) await redis.setex(`focura:revoked:access:${jti}`, expiresInSeconds, "1");
   else { devRevokedAccess.add(jti); setTimeout(() => devRevokedAccess.delete(jti), expiresInSeconds * 1000); }
@@ -20,7 +18,6 @@ export async function isAccessTokenRevoked(jti: string): Promise<boolean> {
   return devRevokedAccess.has(jti);
 }
 
-// ─── Refresh Token ────────────────────────────────────────────────────────
 export async function storeRefreshToken(userId: string, jti: string, expiresInSeconds: number): Promise<void> {
   if (redis) await redis.setex(`focura:refresh:${userId}:${jti}`, expiresInSeconds, JSON.stringify({ jti, createdAt: Date.now() }));
   else { devRefreshTokens.set(userId, jti); setTimeout(() => devRefreshTokens.delete(userId), expiresInSeconds * 1000); }
@@ -44,7 +41,6 @@ export async function rotateRefreshToken(userId: string, oldJti: string, newJti:
   return true;
 }
 
-// ─── SSE One-Time Token (30s, single-use) ────────────────────────────────
 export async function storeSseToken(jti: string, userId: string): Promise<void> {
   if (redis) await redis.setex(`focura:sse:${jti}`, 30, userId);
   else { devSseTokens.set(jti, userId); setTimeout(() => devSseTokens.delete(jti), 30_000); }

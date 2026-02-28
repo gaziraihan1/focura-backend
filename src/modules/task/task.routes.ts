@@ -1,4 +1,3 @@
-// src/modules/task/task.routes.ts
 import { Router } from 'express';
 import { upload } from '../../middleware/upload.js';
 import {
@@ -12,7 +11,6 @@ import {
 } from './task.controller.js';
 import commentRoutes from '../comment/comment.routes.js';
 
-// Import attachment handlers from attachment module
 import {
   getTaskAttachments,
   addAttachment,
@@ -29,10 +27,8 @@ router.put('/:id', updateTask);
 router.patch('/:id/status', updateTaskStatus);
 router.delete('/:id', deleteTask);
 
-// Nested routes
 router.use('/:taskId/comments', commentRoutes);
 
-// Attachment routes (nested under tasks)
 router.get('/:taskId/attachments', getTaskAttachments);
 router.post('/:taskId/attachments', upload.single('file'), addAttachment);
 router.delete('/:taskId/attachments/:attachmentId', deleteAttachment);

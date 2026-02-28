@@ -1,7 +1,3 @@
-/**
- * attachment.types.ts
- * Responsibility: Types for task attachment management with tier-based limits.
- */
 
 export interface UploadLimits {
   maxFileSizeMB: number;

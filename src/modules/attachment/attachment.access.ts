@@ -1,25 +1,12 @@
-/**
- * attachment.access.ts
- * Responsibility: Authorization for attachment operations.
- */
 
 import { prisma } from '../../index.js';
 
 export const AttachmentAccess = {
-  /**
-   * Verifies user can add attachments to a task.
-   * Rules:
-   *  - Task must exist
-   *  - User must have access to the task (creator, assignee, or workspace member)
-   *  - Task must belong to a workspace/project (personal tasks cannot have attachments)
-   */
   async assertCanAttach(taskId: string, userId: string) {
     const task = await prisma.task.findFirst({
       where: {
         id: taskId,
-        // Must have a project (no personal tasks)
         projectId: { not: null },
-        // User must have access
         OR: [
           { createdById: userId },
           { assignees: { some: { userId } } },
@@ -67,12 +54,6 @@ export const AttachmentAccess = {
     };
   },
 
-  /**
-   * Verifies user can delete an attachment.
-   * Rules:
-   *  - File uploader can delete
-   *  - Workspace OWNER/ADMIN can delete
-   */
   async assertCanDelete(fileId: string, userId: string) {
     const file = await prisma.file.findFirst({
       where: { id: fileId },
@@ -104,9 +85,6 @@ export const AttachmentAccess = {
     return file;
   },
 
-  /**
-   * Verifies user can view attachment stats (workspace owner/admin only).
-   */
   async assertCanViewStats(workspaceId: string, userId: string) {
     const member = await prisma.workspaceMember.findFirst({
       where: {

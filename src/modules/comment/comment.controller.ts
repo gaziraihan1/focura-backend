@@ -1,13 +1,3 @@
-/**
- * comment.controller.ts
- * Responsibility: HTTP layer for the Comment domain.
- *
- * Improvements:
- *  - Zod validation replaces manual if-checks
- *  - Task fetch centralized (was repeated 3 times in original)
- *  - Activity logging via callback pattern
- *  - Typed error handling
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -42,7 +32,6 @@ function handleError(res: Response, label: string, error: unknown): void {
   res.status(500).json({ success: false, message: `Failed to ${label}` });
 }
 
-/** GET / */
 export const getComments = async (req: AuthRequest, res: Response) => {
   try {
     const comments = await CommentQuery.getComments(req.params.taskId, req.user!.id);
@@ -52,7 +41,6 @@ export const getComments = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** POST / */
 export const addComment = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId } = req.params;
@@ -60,7 +48,6 @@ export const addComment = async (req: AuthRequest, res: Response) => {
 
     const comment = await CommentMutation.createComment(
       { taskId, userId: req.user!.id, ...body },
-      // onCreated callback — activity logging
       async ({ commentId, content }) => {
         const task = await prisma.task.findUnique({
           where:  { id: taskId },
@@ -86,7 +73,6 @@ export const addComment = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** PUT /:commentId */
 export const updateComment = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId, commentId } = req.params;
@@ -94,7 +80,6 @@ export const updateComment = async (req: AuthRequest, res: Response) => {
 
     const updated = await CommentMutation.updateComment(
       commentId, taskId, req.user!.id, body,
-      // onUpdated callback
       async ({ oldContent, newContent }) => {
         const task = await prisma.task.findUnique({
           where:  { id: taskId },
@@ -121,14 +106,12 @@ export const updateComment = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** DELETE /:commentId */
 export const deleteComment = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId, commentId } = req.params;
 
     await CommentMutation.deleteComment(
       commentId, taskId, req.user!.id,
-      // onDeleted callback
       async ({ content }) => {
         const task = await prisma.task.findUnique({
           where:  { id: taskId },

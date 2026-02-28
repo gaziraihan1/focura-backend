@@ -1,4 +1,3 @@
-// utils/taskScope.ts
 import { Prisma } from "@prisma/client";
 
 interface TaskScopeParams {

@@ -1,21 +1,3 @@
-/**
- * focusSession.controller.ts
- * Responsibility: HTTP layer for the FocusSession domain.
- *
- * Key improvements over the original:
- *
- * 1. Error code mapping — replaces fragile string equality checks:
- *    BEFORE: (error as Error).message === 'SESSION_NOT_FOUND'
- *    AFTER:  error.message === FocusSessionError.SESSION_NOT_FOUND
- *
- * 2. Calendar decoupling — the controller provides the onComplete callback
- *    to completeSession. FocusSession module never imports Calendar module.
- *
- * 3. Missing /stats route — getStats was implemented in the controller but
- *    never registered in the routes file. Fixed in focusSession.routes.ts.
- *
- * 4. Static class → plain functions — simpler, no `this` binding issues with Express.
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -30,8 +12,6 @@ import {
   getHistorySchema,
   getStatsSchema,
 } from './focusSession.validators.js';
-
-// ─── Error handler ─────────────────────────────────────────────────────────────
 
 function handleError(res: Response, label: string, error: unknown): void {
   if (error instanceof z.ZodError) {
@@ -55,11 +35,6 @@ function handleError(res: Response, label: string, error: unknown): void {
   res.status(500).json({ success: false, message: `Failed to ${label}` });
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-/**
- * POST /focus-sessions/start
- */
 export const startSession = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -73,7 +48,6 @@ export const startSession = async (req: AuthRequest, res: Response) => {
       message: 'Focus session started',
     });
   } catch (error) {
-    // USER_HAS_ACTIVE_SESSION — return the active session in the body
     if (error instanceof Error &&
         error.message === FocusSessionError.USER_HAS_ACTIVE_SESSION) {
       const active = await FocusSessionQuery.getActiveSession(req.user!.id);
@@ -87,16 +61,11 @@ export const startSession = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * POST /focus-sessions/:id/complete
- * Provides a calendar recalculation callback — keeps the two modules decoupled.
- */
 export const completeSession = async (req: AuthRequest, res: Response) => {
   try {
     const session = await FocusSessionMutation.completeSession(
       { sessionId: req.params.id, userId: req.user!.id },
 
-      // onComplete callback — calendar module dependency stays here, not in FocusSession
       async ({ startedAt, workspaceId }) => {
         await CalendarAggregation.recalculateDay(req.user!.id, workspaceId, startedAt);
       },
@@ -108,9 +77,6 @@ export const completeSession = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * POST /focus-sessions/:id/cancel
- */
 export const cancelSession = async (req: AuthRequest, res: Response) => {
   try {
     await FocusSessionMutation.cancelSession({
@@ -124,9 +90,6 @@ export const cancelSession = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * GET /focus-sessions/active
- */
 export const getActiveSession = async (req: AuthRequest, res: Response) => {
   try {
     const session = await FocusSessionQuery.getActiveSession(req.user!.id);
@@ -136,9 +99,6 @@ export const getActiveSession = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * GET /focus-sessions/history?limit=30
- */
 export const getHistory = async (req: AuthRequest, res: Response) => {
   try {
     const { limit } = getHistorySchema.parse(req.query);
@@ -154,10 +114,6 @@ export const getHistory = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * GET /focus-sessions/stats?startDate=...&endDate=...
- * NOTE: This route existed in the controller but was missing from routes.ts — now fixed.
- */
 export const getStats = async (req: AuthRequest, res: Response) => {
   try {
     const { startDate, endDate } = getStatsSchema.parse(req.query);

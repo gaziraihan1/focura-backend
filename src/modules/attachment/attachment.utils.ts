@@ -1,7 +1,3 @@
-/**
- * attachment.utils.ts
- * Responsibility: Pure utility functions for attachment limits.
- */
 
 import { TIER_LIMITS, type UploadLimits } from './attachment.types.js';
 

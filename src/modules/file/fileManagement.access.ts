@@ -1,7 +1,3 @@
-/**
- * fileManagement.access.ts
- * Access control for file management operations.
- */
 
 import { prisma } from '../../index.js';
 

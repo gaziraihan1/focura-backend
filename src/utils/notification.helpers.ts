@@ -1,215 +1,163 @@
-// utils/notification.helpers.ts
-import { NotificationService } from "../services/notification.service.js";
+
 import { sendNotificationToUser } from "../sockets/notification.stream.js";
 import { NotificationType } from "@prisma/client";
 import { prisma } from "../index.js";
+import { NotificationMutation } from "../modules/notification/notification.mutation.js";
 
-/**
- * Send notification to a single user
- */
 export async function notifyUser(params: {
-  userId: string;
-  senderId?: string;
-  type: NotificationType;
-  title: string;
-  message: string;
+  userId:     string;
+  senderId?:  string;
+  type:       NotificationType;
+  title:      string;
+  message:    string;
   actionUrl?: string;
 }) {
-  const notification = await NotificationService.create(params);
+  const notification = await NotificationMutation.create(params);
   sendNotificationToUser(params.userId, notification);
   return notification;
 }
 
-/**
- * Notify all assignees of a task
- */
 export async function notifyTaskAssignees(params: {
-  taskId: string;
-  senderId?: string;
-  type: NotificationType;
-  title: string;
-  message: string;
+  taskId:         string;
+  senderId?:      string;
+  type:           NotificationType;
+  title:          string;
+  message:        string;
   excludeUserId?: string;
 }) {
   const task = await prisma.task.findUnique({
-    where: { id: params.taskId },
+    where:   { id: params.taskId },
     include: {
       assignees: {
-        include: { 
-          user: {
-            select: {
-              id: true,
-              notifications: true, // Check if user has notifications enabled
-            }
-          } 
+        include: {
+          user: { select: { id: true, notifications: true } },
         },
       },
     },
   });
 
-  if (!task) return [];
+  if (!task?.assignees?.length) return [];
 
-  const notifications = [];
+  const eligible = task.assignees.filter((a) => {
+    if (params.excludeUserId && a.userId === params.excludeUserId) return false;
+    if (!a.user.notifications) return false;
+    return true;
+  });
 
-  for (const assignee of task.assignees) {
-    // Skip if user should be excluded
-    if (params.excludeUserId && assignee.userId === params.excludeUserId) {
-      continue;
-    }
+  const results = await Promise.allSettled(
+    eligible.map((a) =>
+      notifyUser({
+        userId:    a.userId,
+        senderId:  params.senderId,
+        type:      params.type,
+        title:     params.title,
+        message:   params.message,
+        actionUrl: `/dashboard/tasks/${params.taskId}`,
+      })
+    )
+  );
 
-    // Skip if user has notifications disabled
-    if (!assignee.user.notifications) {
-      continue;
-    }
-
-    const notification = await notifyUser({
-      userId: assignee.userId,
-      senderId: params.senderId,
-      type: params.type,
-      title: params.title,
-      message: params.message,
-      actionUrl: `/dashboard/tasks/${params.taskId}`,
-    });
-
-    notifications.push(notification);
-  }
-
-  return notifications;
+  return results
+    .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+    .map((r) => r.value);
 }
 
-/**
- * Notify all members of a workspace
- */
 export async function notifyWorkspaceMembers(params: {
-  workspaceId: string;
-  senderId?: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  actionUrl?: string;
+  workspaceId:    string;
+  senderId?:      string;
+  type:           NotificationType;
+  title:          string;
+  message:        string;
+  actionUrl?:     string;
   excludeUserId?: string;
-  role?: string;
+  role?:          string;
 }) {
   const members = await prisma.workspaceMember.findMany({
     where: {
       workspaceId: params.workspaceId,
       ...(params.role && { role: params.role as any }),
     },
-    include: { 
-      user: {
-        select: {
-          id: true,
-          notifications: true,
-        }
-      } 
+    include: {
+      user: { select: { id: true, notifications: true } },
     },
   });
 
-  const notifications = [];
+  const eligible = members.filter((m) => {
+    if (params.excludeUserId && m.userId === params.excludeUserId) return false;
+    if (!m.user.notifications) return false;
+    return true;
+  });
 
-  for (const member of members) {
-    // Skip if user should be excluded
-    if (params.excludeUserId && member.userId === params.excludeUserId) {
-      continue;
-    }
+  const results = await Promise.allSettled(
+    eligible.map((m) =>
+      notifyUser({
+        userId:    m.userId,
+        senderId:  params.senderId,
+        type:      params.type,
+        title:     params.title,
+        message:   params.message,
+        actionUrl: params.actionUrl,
+      })
+    )
+  );
 
-    // Skip if user has notifications disabled
-    if (!member.user.notifications) {
-      continue;
-    }
-
-    const notification = await notifyUser({
-      userId: member.userId,
-      senderId: params.senderId,
-      type: params.type,
-      title: params.title,
-      message: params.message,
-      actionUrl: params.actionUrl,
-    });
-
-    notifications.push(notification);
-  }
-
-  return notifications;
+  return results
+    .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+    .map((r) => r.value);
 }
 
-/**
- * Notify all members of a project (users assigned to any task in the project)
- */
 export async function notifyProjectMembers(params: {
-  projectId: string;
-  senderId?: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  actionUrl?: string;
+  projectId:      string;
+  senderId?:      string;
+  type:           NotificationType;
+  title:          string;
+  message:        string;
+  actionUrl?:     string;
   excludeUserId?: string;
 }) {
   const assignees = await prisma.taskAssignee.findMany({
-    where: {
-      task: {
-        projectId: params.projectId,
-      },
-    },
+    where:    { task: { projectId: params.projectId } },
     distinct: ["userId"],
-    include: { 
-      user: {
-        select: {
-          id: true,
-          notifications: true,
-        }
-      } 
+    include:  {
+      user: { select: { id: true, notifications: true } },
     },
   });
 
-  const notifications = [];
+  const eligible = assignees.filter((a) => {
+    if (params.excludeUserId && a.userId === params.excludeUserId) return false;
+    if (!a.user.notifications) return false;
+    return true;
+  });
 
-  for (const assignee of assignees) {
-    // Skip if user should be excluded
-    if (params.excludeUserId && assignee.userId === params.excludeUserId) {
-      continue;
-    }
+  const results = await Promise.allSettled(
+    eligible.map((a) =>
+      notifyUser({
+        userId:    a.userId,
+        senderId:  params.senderId,
+        type:      params.type,
+        title:     params.title,
+        message:   params.message,
+        actionUrl: params.actionUrl,
+      })
+    )
+  );
 
-    // Skip if user has notifications disabled
-    if (!assignee.user.notifications) {
-      continue;
-    }
-
-    const notification = await notifyUser({
-      userId: assignee.userId,
-      senderId: params.senderId,
-      type: params.type,
-      title: params.title,
-      message: params.message,
-      actionUrl: params.actionUrl,
-    });
-
-    notifications.push(notification);
-  }
-
-  return notifications;
+  return results
+    .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+    .map((r) => r.value);
 }
 
-/**
- * Parse @mentions from text and return user IDs
- */
 export async function parseMentions(
-  text: string,
+  text:        string,
   workspaceId: string
 ): Promise<string[]> {
-  const mentionRegex = /@(\w+)/g;
-  const matches = [...text.matchAll(mentionRegex)];
-
-  if (matches.length === 0) return [];
-
-  const usernames = matches.map((m) => m[1]);
+  const usernames = [...text.matchAll(/@(\w+)/g)].map((m) => m[1]);
+  if (!usernames.length) return [];
 
   const users = await prisma.user.findMany({
     where: {
-      name: { in: usernames },
-      workspaceMembers: {
-        some: { workspaceId },
-      },
+      name:             { in: usernames },
+      workspaceMembers: { some: { workspaceId } },
     },
     select: { id: true },
   });
@@ -217,44 +165,40 @@ export async function parseMentions(
   return users.map((u) => u.id);
 }
 
-/**
- * Notify users mentioned in text (e.g., @username in comments)
- */
 export async function notifyMentions(params: {
-  text: string;
+  text:        string;
   workspaceId: string;
-  senderId: string;
-  senderName: string;
-  context: string;
-  actionUrl: string;
+  senderId:    string;
+  senderName:  string;
+  context:     string;
+  actionUrl:   string;
 }) {
   const mentionedUserIds = await parseMentions(params.text, params.workspaceId);
+  if (!mentionedUserIds.length) return [];
 
-  const notifications = [];
+  const users = await prisma.user.findMany({
+    where:  { id: { in: mentionedUserIds } },
+    select: { id: true, notifications: true },
+  });
 
-  for (const userId of mentionedUserIds) {
-    // Don't notify if user mentions themselves
-    if (userId === params.senderId) continue;
+  const eligible = users.filter(
+    (u) => u.id !== params.senderId && u.notifications
+  );
 
-    // Check if user has notifications enabled
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { notifications: true },
-    });
+  const results = await Promise.allSettled(
+    eligible.map((u) =>
+      notifyUser({
+        userId:    u.id,
+        senderId:  params.senderId,
+        type:      "MENTION",
+        title:     "You Were Mentioned",
+        message:   `${params.senderName} mentioned you in ${params.context}`,
+        actionUrl: params.actionUrl,
+      })
+    )
+  );
 
-    if (!user?.notifications) continue;
-
-    const notification = await notifyUser({
-      userId,
-      senderId: params.senderId,
-      type: "MENTION",
-      title: "You Were Mentioned",
-      message: `${params.senderName} mentioned you in ${params.context}`,
-      actionUrl: params.actionUrl,
-    });
-
-    notifications.push(notification);
-  }
-
-  return notifications;
+  return results
+    .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+    .map((r) => r.value);
 }

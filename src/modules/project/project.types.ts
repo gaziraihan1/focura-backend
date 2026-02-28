@@ -1,9 +1,4 @@
-/**
- * project.types.ts
- * Responsibility: All types, interfaces, and domain error classes for the Project domain.
- */
 
-// ─── Domain error hierarchy ───────────────────────────────────────────────────
 
 export class ProjectError extends Error {
   constructor(message: string, public readonly code: string) {
@@ -30,13 +25,9 @@ export class ValidationError extends ProjectError {
   }
 }
 
-// ─── Domain enums ─────────────────────────────────────────────────────────────
-
 export type ProjectStatus   = 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED';
 export type ProjectPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
 export type ProjectRole     = 'MANAGER' | 'COLLABORATOR' | 'VIEWER';
-
-// ─── Input shapes ─────────────────────────────────────────────────────────────
 
 export interface CreateProjectDto {
   name: string;
@@ -71,8 +62,6 @@ export interface UpdateProjectMemberRoleDto {
   role: ProjectRole;
 }
 
-// ─── Computed response shapes ─────────────────────────────────────────────────
-
 export interface TopPerformer {
   id: string;
   name: string | null;
@@ -89,10 +78,6 @@ export interface ProjectStats {
   topPerformer: TopPerformer | null;
 }
 
-/**
- * Minimal typed shape needed for stats calculation.
- * Avoids `any` in calculateProjectStats.
- */
 export interface ProjectForStats {
   startDate:  Date | null;
   createdAt:  Date;
@@ -110,10 +95,6 @@ export interface ProjectForStats {
   }>;
 }
 
-/**
- * Minimal typed shape for admin permission check.
- * Avoids `project: any` in isUserProjectAdmin.
- */
 export interface ProjectForPermission {
   workspace: {
     id:      string;

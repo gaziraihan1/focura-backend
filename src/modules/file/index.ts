@@ -1,6 +1,3 @@
-/**
- * fileManagement/index.ts
- */
 
 export { FileManagementQuery } from './fileManagement.query.js';
 export { FileManagementMutation } from './fileManagement.mutation.js';

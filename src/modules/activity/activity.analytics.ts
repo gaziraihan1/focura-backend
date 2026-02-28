@@ -1,22 +1,9 @@
-/**
- * activity.analytics.ts
- * Responsibility: Aggregation and analytics queries for the Activity domain.
- *
- * Kept separate from activity.query.ts because:
- *  - These use GROUP BY and COUNT — very different DB query profile.
- *  - They're candidates for caching (Redis TTL) independently of row fetches.
- *  - Adding a new stat doesn't risk breaking the plain read queries.
- */
 
 import { prisma } from '../../index.js';
 import type { ActivityStats } from './activity.types.js';
 import { ActivityQuery } from './activity.query.js';
 
 export const ActivityAnalytics = {
-  /**
-   * Returns total count, today's count, and a per-action breakdown
-   * for activities visible to the given user.
-   */
   async getUserActivityStats(
     userId: string,
     workspaceId?: string,
@@ -62,13 +49,6 @@ export const ActivityAnalytics = {
     return { total, today, byAction };
   },
 
-  /**
-   * Groups activities by calendar date over the last `days` days.
-   * Useful for timeline feeds and activity heatmaps.
-   *
-   * Example return:
-   *   { "2/17/2026": [activity, activity], "2/16/2026": [activity] }
-   */
   async getGroupedActivities(
     userId: string,
     workspaceId?: string,

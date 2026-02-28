@@ -1,8 +1,3 @@
-/**
- * analytics.query.ts
- * Responsibility: Read-only analytics and reporting queries.
- * All methods require workspace membership verification.
- */
 
 import { prisma } from "../../index.js";
 import { AnalyticsAccess } from "./analytics.access.js";
@@ -27,7 +22,6 @@ import type {
 } from "./analytics.types.js";
 
 export const AnalyticsQuery = {
-  // ==================== EXECUTIVE OVERVIEW ====================
 
   async getExecutiveKPIs(
     workspaceId: string,
@@ -98,8 +92,6 @@ export const AnalyticsQuery = {
     };
   },
 
-  // ==================== TASK ANALYTICS ====================
-
   async getTaskStatusDistribution(
     workspaceId: string,
     userId: string,
@@ -146,7 +138,6 @@ export const AnalyticsQuery = {
       orderBy: { completedAt: "asc" },
     });
 
-    // Initialize map with all days
     const trendMap = new Map<string, number>();
     for (let i = 0; i < days; i++) {
       const date = new Date(startDate);
@@ -154,7 +145,6 @@ export const AnalyticsQuery = {
       trendMap.set(getDayKey(date), 0);
     }
 
-    // Count tasks per day
     completedTasks.forEach((task) => {
       if (task.completedAt) {
         const dateKey = getDayKey(task.completedAt);
@@ -189,7 +179,6 @@ export const AnalyticsQuery = {
       orderBy: { dueDate: "asc" },
     });
 
-    // Group by week
     const weekMap = new Map<string, number>();
     for (let i = 0; i < Math.ceil(days / 7); i++) {
       const weekStart = new Date(startDate);
@@ -216,8 +205,6 @@ export const AnalyticsQuery = {
       count,
     }));
   },
-
-  // ==================== PROJECT HEALTH ====================
 
   async getProjectHealthMetrics(
     workspaceId: string,
@@ -284,8 +271,6 @@ export const AnalyticsQuery = {
       count: item._count.status,
     }));
   },
-
-  // ==================== PRODUCTIVITY ANALYTICS ====================
 
   async getMemberContribution(
     workspaceId: string,
@@ -383,7 +368,6 @@ export const AnalyticsQuery = {
             : 0;
         }),
 
-      // Fixed: Remove orderBy from groupBy, sort after fetching
       prisma.timeEntry
         .groupBy({
           by: ["taskId"],
@@ -391,7 +375,6 @@ export const AnalyticsQuery = {
           _sum: { duration: true },
         })
         .then(async (groups) => {
-          // Sort groups by duration (highest first) and take top 10
           const sortedGroups = groups
             .sort((a, b) => (b._sum.duration || 0) - (a._sum.duration || 0))
             .slice(0, 10);
@@ -438,8 +421,6 @@ export const AnalyticsQuery = {
     };
   },
 
-  // ==================== ACTIVITY INTELLIGENCE ====================
-
   async getActivityVolumeTrend(
     workspaceId: string,
     userId: string,
@@ -456,7 +437,6 @@ export const AnalyticsQuery = {
       orderBy: { createdAt: "asc" },
     });
 
-    // Initialize map
     const trendMap = new Map<string, Map<string, number>>();
     for (let i = 0; i < days; i++) {
       const date = new Date(startDate);
@@ -464,7 +444,6 @@ export const AnalyticsQuery = {
       trendMap.set(getDayKey(date), new Map());
     }
 
-    // Count by action type
     activities.forEach((activity) => {
       const dateKey = getDayKey(activity.createdAt);
       const dayMap = trendMap.get(dateKey) || new Map();
@@ -529,8 +508,6 @@ export const AnalyticsQuery = {
     return sorted[0] || { day: "None", count: 0, mostCommonAction: "NONE" };
   },
 
-  // ==================== WORKLOAD & CAPACITY ====================
-
   async getTasksPerMember(
     workspaceId: string,
     userId: string,
@@ -585,8 +562,6 @@ export const AnalyticsQuery = {
       count: item._count.priority,
     }));
   },
-
-  // ==================== DEADLINE RISK ANALYSIS ====================
 
   async getDeadlineRiskAnalysis(
     workspaceId: string,

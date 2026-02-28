@@ -1,9 +1,4 @@
-/**
- * storage.types.ts
- * Responsibility: All types, interfaces, and domain errors for the Storage domain.
- */
 
-// ─── Domain errors ────────────────────────────────────────────────────────────
 
 export class StorageError extends Error {
   constructor(message: string, public readonly code: string) {
@@ -23,8 +18,6 @@ export class NotFoundError extends StorageError {
     super(message, 'NOT_FOUND');
   }
 }
-
-// ─── Response shapes ──────────────────────────────────────────────────────────
 
 export interface StorageInfo {
   usedMB: number;

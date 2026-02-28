@@ -1,12 +1,3 @@
-/**
- * calendar.insights.ts
- * Responsibility: Derived analytics — capacity insights and burnout signals.
- *
- * Kept separate from aggregation because:
- *  - It reads aggregates (via CalendarAggregation) but never writes them.
- *  - It writes BurnoutSignal records — a completely separate Prisma model.
- *  - The burnout scoring formula can change independently of how aggregates are computed.
- */
 
 import { prisma } from '../../index.js';
 import type { BurnoutSignal, CalendarInsights } from './calendar.types.js';
@@ -21,10 +12,6 @@ import {
 } from './calendar.utils.js';
 
 export const CalendarInsightsService = {
-  /**
-   * Computes high-level capacity metrics for a date range:
-   * planned vs capacity hours, overloaded days, focus days, burnout risk.
-   */
   async getInsights(
     userId: string,
     workspaceId: string | undefined,
@@ -60,15 +47,6 @@ export const CalendarInsightsService = {
     };
   },
 
-  /**
-   * Calculates and persists a BurnoutSignal for the ISO week containing `weekStart`.
-   *
-   * Scoring thresholds:
-   *  CRITICAL  — 5+ consecutive heavy days OR avg load > 1.5
-   *  HIGH      — 3+ consecutive heavy days OR avg load > 1.2
-   *  MODERATE  — 2+ heavy days OR avg load > 1.0
-   *  LOW       — everything else
-   */
   async calculateBurnoutRisk(userId: string, weekStart: Date): Promise<BurnoutSignal> {
     const normalizedWeekStart = getWeekStart(weekStart);
 
@@ -87,7 +65,6 @@ export const CalendarInsightsService = {
     const workDays       = (schedule?.workDays as string[]) ?? ['MON', 'TUE', 'WED', 'THU', 'FRI'];
     const workDayNumbers = getWorkDayNumbers(workDays);
 
-    // Only workday aggregates count toward burnout
     const workdayAggs = aggregates.filter((agg) =>
       workDayNumbers.includes(agg.date.getDay()),
     );

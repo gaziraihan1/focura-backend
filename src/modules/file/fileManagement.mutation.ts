@@ -1,7 +1,3 @@
-/**
- * fileManagement.mutation.ts
- * Write operations for file management.
- */
 
 import { prisma } from '../../index.js';
 import { FileManagementAccess } from './fileManagement.access.js';

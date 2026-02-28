@@ -167,28 +167,39 @@ Content-Type: application/json
 
 ## Server-Sent Events (SSE)
 
-The SSE notification stream is **public** — it requires only a `userId` in the URL path. No token is needed.
+The SSE stream is **authenticated** — the access token is passed as a query param (EventSource does not support custom headers). The backend verifies the token and extracts `userId` from it. The `userId` in the URL is never trusted.
 
 ### Endpoint
 
 ```
-GET /api/notifications/stream/:userId
+GET /api/notifications/stream?token=<accessToken>
 ```
+
+### Security model
+
+```
+Client sends:  GET /stream?token=<accessToken>
+Backend does:  verifyToken(token, "access") → extracts userId from JWT
+               clients.set(userId, res)      ← userId from token only
+```
+
+A user can only ever receive their own notifications — even if they know another user's ID, they cannot subscribe to that user's stream because the userId is always derived from the cryptographically verified token, never from the URL.
 
 ### Connection flow
 
 ```
-Frontend                     Backend
-   |                             |
-   |── GET /stream/:userId ────>|
-   |                             |── add to clients Map
-   |<── EventStream ────────────|
-   |                             |
-   |  onmessage                  |
-   |<── { type, data } ─────────|── sendNotificationToUser(userId, data)
-   |                             |
-   |── (disconnect) ────────────|── remove from clients Map
-   |                             |── audit log SSE_DISCONNECTED
+Frontend (useNotifications)       Backend
+   |                                  |
+   |── GET /stream?token=<jwt> ──────>|── verifyToken()
+   |                                  |── userId from token
+   |                                  |── clients.set(userId, res)
+   |<── EventStream ─────────────────|
+   |                                  |
+   |  onmessage                       |
+   |<── { type, ...notification } ───|── sendNotificationToUser(userId, data)
+   |                                  |
+   |── (disconnect) ─────────────────|── clients.delete(userId)
+   |                                  |── audit log SSE_DISCONNECTED
 ```
 
 ### Connection management
@@ -201,16 +212,60 @@ const clients = new Map<string, Response>();
 - On `close` or `error`: heartbeat cleared, client removed from map
 - One connection per userId — new connection replaces the previous one
 
-### React hook
+### React integration
+
+SSE is managed inside the `useNotifications` hook. The hook handles everything: fetching notifications, real-time updates via SSE, and all mutations.
 
 ```ts
-const { connected } = useSSE(session?.user?.id, handleNotification);
+const {
+  notifications,
+  unreadCount,
+  markAsRead,
+  markAllAsRead,
+  deleteNotification,
+  deleteAllRead,
+  isLoading,
+  fetchNextPage,
+  hasNextPage,
+} = useNotifications();
 ```
 
-The `useSSE` hook:
-- Depends only on `userId` (stable string) — no unnecessary reconnects
+**SSE behavior inside `useNotifications`:**
+- Effect depends on `backendToken` — reconnects automatically when token rotates after silent refresh
+- On new notification: prepends to React Query infinite cache, bumps unread count optimistically without a refetch
 - Auto-reconnects after 5 seconds on disconnect
-- Cancels cleanly on unmount
+- Cancels and closes the connection cleanly on unmount
+- No polling (`refetchInterval` removed) — SSE handles all real-time updates
+
+### Axios integration
+
+The `useNotifications` hook uses the shared `api` wrapper from `@/lib/axios`. The wrapper returns `ApiResponse<T>` which is `{ success, data?, message? }`, so queries unwrap one level:
+
+```ts
+// api.get<NotificationsResponse>() returns ApiResponse<NotificationsResponse>
+const response = await api.get<NotificationsResponse>("/api/notifications");
+return response?.data ?? EMPTY_PAGE;  // .data is NotificationsResponse
+```
+
+### Sending notifications (backend)
+
+All notification sending goes through `notifyUser()` in `notification.helpers.ts`, which writes to DB via `NotificationMutation.create()` and immediately pushes to the user's SSE stream:
+
+```ts
+import { notifyUser, notifyTaskAssignees, notifyWorkspaceMembers, notifyMentions } from "../utils/notification.helpers.js";
+
+// Single user
+await notifyUser({ userId, type: "TASK_ASSIGNED", title: "...", message: "..." });
+
+// All task assignees (skips sender, skips users with notifications off)
+await notifyTaskAssignees({ taskId, senderId: req.user.id, type: "TASK_UPDATED", title: "...", message: "...", excludeUserId: req.user.id });
+
+// All workspace members
+await notifyWorkspaceMembers({ workspaceId, senderId: req.user.id, type: "WORKSPACE_UPDATE", title: "...", message: "...", actionUrl: "..." });
+
+// @mentions in text
+await notifyMentions({ text: comment.content, workspaceId, senderId: req.user.id, senderName: req.user.name, context: "a comment", actionUrl: "..." });
+```
 
 ---
 
@@ -376,6 +431,24 @@ router.delete("/user/:id", authenticate, authorize("ADMIN"), handler);
 router.post("/ai/generate", authenticate, rateLimitByUser("pro"), handler);
 ```
 
+### Notification routes (special case)
+
+The SSE stream route sits outside the `authenticate` middleware block because it handles its own token verification internally. All other notification routes are protected normally:
+
+```ts
+// SSE — token verified inside notificationStream(), no userId in URL
+router.get("/stream", notificationStream);
+
+// All routes below this line require authenticate middleware
+router.use(authenticate);
+router.get("/", getNotifications);
+router.get("/unread-count", getUnreadCount);
+router.patch("/:id/read", markAsRead);
+router.patch("/read-all", markAllAsRead);
+router.delete("/read/all", deleteAllRead);  // must be before /:id
+router.delete("/:id", deleteNotification);
+```
+
 ### Next.js server component
 
 ```ts
@@ -418,4 +491,4 @@ To rotate RSA keys (e.g. every 90 days or after a breach):
 | API rate limiting               | Per-user, subscription tier aware           |
 | Audit trail                     | Structured JSON, severity-tagged            |
 | Session management              | HTTP-only cookie via NextAuth               |
-| SSE security                    | Public stream, userId from URL param only   |
+| SSE security                    | Token verified server-side, userId extracted from JWT   |

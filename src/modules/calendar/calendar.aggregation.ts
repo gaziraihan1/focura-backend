@@ -1,16 +1,3 @@
-/**
- * calendar.aggregation.ts
- * Responsibility: Computing and persisting CalendarDayAggregate records.
- *
- * This is the most complex part of the Calendar domain — it reads data
- * from 6 different Prisma models (tasks, timeEntries, focusSessions, etc.)
- * and derives a single aggregate row per user per day.
- *
- * Kept separate from calendar.query.ts because:
- *  - It writes to the DB (upserts), not just reads.
- *  - It has a complex multi-model fetch pattern with its own caching logic.
- *  - Changes to the scoring formula don't affect read queries.
- */
 
 import { prisma } from '../../index.js';
 import type { CalendarDayAggregate } from './calendar.types.js';
@@ -23,10 +10,6 @@ import {
 } from './calendar.utils.js';
 
 export const CalendarAggregation = {
-  /**
-   * Returns aggregates for the requested range.
-   * Automatically computes missing days — never returns stale gaps.
-   */
   async getOrComputeAggregates(filters: CalendarFilters): Promise<CalendarDayAggregate[]> {
     const { userId, workspaceId, startDate, endDate } = filters;
 
@@ -38,13 +21,11 @@ export const CalendarAggregation = {
       orderBy: { date: 'asc' },
     });
 
-    // No records at all — compute the full range first
     if (existing.length === 0) {
       await this.computeRange(userId, workspaceId, startDate, endDate);
       return this.getOrComputeAggregates(filters);
     }
 
-    // Partial data — only compute the missing days
     const existingDates = new Set(
       existing.map((agg) => agg.date.toISOString().split('T')[0]),
     );
@@ -62,9 +43,6 @@ export const CalendarAggregation = {
     return existing;
   },
 
-  /**
-   * Computes and upserts aggregates for every day in the range (in parallel).
-   */
   async computeRange(
     userId: string,
     workspaceId: string | undefined,
@@ -77,10 +55,6 @@ export const CalendarAggregation = {
     );
   },
 
-  /**
-   * Fetches all raw data for a single day, derives the workload metrics,
-   * and upserts the aggregate row.
-   */
   async recalculateDay(
     userId: string,
     workspaceId: string | undefined,
@@ -151,7 +125,6 @@ export const CalendarAggregation = {
 
     const focusRequiredTasks = tasks.filter((t) => t.focusRequired).length;
 
-    // Workload score: planned load ratio + critical task penalty + focus penalty
     const workloadScore =
       plannedHours / dailyCapacity +
       criticalTasks * 0.5 +

@@ -1,8 +1,6 @@
-/**
- * notification/index.ts
- */
 
 export { NotificationQuery } from './notification.query.js';
 export { NotificationMutation } from './notification.mutation.js';
 export { default as notificationRouter } from './notification.routes.js';
+export { initNotificationCrons } from './notification.cron.js';
 export type * from './notification.types.js';

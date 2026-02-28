@@ -1,7 +1,3 @@
-/**
- * analytics.types.ts
- * Domain types for workspace analytics and reporting.
- */
 
 export interface ExecutiveKPIs {
   totalProjects: number;

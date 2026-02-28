@@ -1,26 +1,3 @@
-/**
- * storage.controller.ts
- * Responsibility: HTTP layer for the Storage domain.
- *
- * Key improvements over the original:
- *
- * 1. Double admin check removed in getWorkspaceOverview:
- *    ORIGINAL: isWorkspaceAdmin() fired first, then getUserContributions()
- *    called isWorkspaceAdmin() AGAIN internally — 2 DB round-trips for
- *    the same answer.
- *    FIX: pass isAdmin flag directly to getUserContributions via a
- *    separate path, or call getUserContributions only when isAdmin is true
- *    (already the case) but getUserContributions now trusts the caller via
- *    StorageAccess.assertAdmin — the second check is still there for safety
- *    but getWorkspaceOverview avoids calling getUserContributions at all
- *    when isAdmin is false, saving the second query.
- *
- * 2. `error: any` → typed error handling using StorageError hierarchy.
- *
- * 3. `requireUserId` guard extracted (same pattern as label module).
- *
- * 4. Static class → plain exported functions.
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -33,8 +10,6 @@ import {
   bulkDeleteSchema,
   checkUploadSchema,
 } from './storage.validators.js';
-
-// ─── Guards & error handler ───────────────────────────────────────────────────
 
 function requireUserId(req: AuthRequest, res: Response): string | null {
   if (!req.user?.id) {
@@ -73,9 +48,6 @@ function handleError(error: unknown, res: Response, label: string): void {
   res.status(500).json({ success: false, message: `Failed to ${label}` });
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-/** GET /storage/workspaces */
 export const getWorkspacesSummary = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -88,13 +60,6 @@ export const getWorkspacesSummary = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * GET /storage/:workspaceId/overview
- *
- * Performance: isAdmin fetched once, passed as context so
- * getUserContributions only fires when actually needed (admin path).
- * The 6 data queries all run in parallel.
- */
 export const getWorkspaceOverview = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -102,8 +67,6 @@ export const getWorkspaceOverview = async (req: AuthRequest, res: Response) => {
 
     const { workspaceId } = req.params;
 
-    // Fetch isAdmin first — needed to decide whether to fetch userContributions
-    // All 6 data queries run in parallel after
     const [
       isAdmin,
       storageInfo,
@@ -114,8 +77,6 @@ export const getWorkspaceOverview = async (req: AuthRequest, res: Response) => {
       myContribution,
     ] = await Promise.all([
       StorageQuery['getWorkspaceStorageInfo'](workspaceId, userId).then(() =>
-        // Re-use the access check that already ran inside getWorkspaceStorageInfo
-        // to derive isAdmin — avoids a separate admin query
         import('./storage.access.js').then((m) => m.StorageAccess.isAdmin(userId, workspaceId)),
       ),
       StorageQuery.getWorkspaceStorageInfo(workspaceId, userId),
@@ -126,7 +87,6 @@ export const getWorkspaceOverview = async (req: AuthRequest, res: Response) => {
       StorageQuery.getMyContribution(workspaceId, userId),
     ]);
 
-    // getUserContributions only fires for admins — avoids unnecessary query
     const userContributions = isAdmin
       ? await StorageQuery.getUserContributions(workspaceId, userId)
       : null;
@@ -140,7 +100,6 @@ export const getWorkspaceOverview = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /storage/:workspaceId/info */
 export const getWorkspaceInfo = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -153,7 +112,6 @@ export const getWorkspaceInfo = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /storage/:workspaceId/my-contribution */
 export const getMyContribution = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -166,7 +124,6 @@ export const getMyContribution = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /storage/:workspaceId/user-contributions */
 export const getUserContributions = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -179,7 +136,6 @@ export const getUserContributions = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /storage/:workspaceId/largest-files?limit=10 */
 export const getLargestFiles = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -194,7 +150,6 @@ export const getLargestFiles = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** POST /storage/:workspaceId/bulk-delete */
 export const bulkDelete = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -218,8 +173,6 @@ export const bulkDelete = async (req: AuthRequest, res: Response) => {
     handleError(error, res, 'delete files');
   }
 };
-
-// Add this new handler after the existing handlers
 
 export const deleteFile = async (req: AuthRequest, res: Response) => {
   try {
@@ -246,7 +199,6 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** POST /storage/:workspaceId/check-upload */
 export const checkUpload = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);

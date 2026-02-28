@@ -1,17 +1,3 @@
-/**
- * calendar.controller.ts
- * Responsibility: HTTP layer for the Calendar domain.
- *
- * Each handler does exactly three things:
- *  1. Parse + validate the request via a Zod schema.
- *  2. Call the appropriate service.
- *  3. Send the response.
- *
- * Improvements over the original:
- *  - ZodError handling extracted to `handleError` — not repeated 7× inline.
- *  - Zod schemas live in calendar.validators.ts — not inline here.
- *  - All handlers are plain arrow functions (no static class needed for Express).
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -25,8 +11,6 @@ import {
   createGoalCheckpointSchema,
   recalculateSchema,
 } from './calendar.validators.js';
-
-// ─── Shared error handler ─────────────────────────────────────────────────────
 
 function handleError(res: Response, label: string, error: unknown): Response {
   console.error(`${label}:`, error);
@@ -45,13 +29,6 @@ function handleError(res: Response, label: string, error: unknown): Response {
   });
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-/**
- * GET /calendar/aggregates
- * Returns CalendarDayAggregate rows for the requested date range.
- * Automatically computes missing days on the fly.
- */
 export const getCalendarAggregates = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -67,10 +44,6 @@ export const getCalendarAggregates = async (req: AuthRequest, res: Response) => 
   }
 };
 
-/**
- * GET /calendar/insights
- * Returns capacity insights and burnout risk for the date range.
- */
 export const getCalendarInsights = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -86,10 +59,6 @@ export const getCalendarInsights = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * GET /calendar/system-events
- * Returns system-generated calendar events for the date range.
- */
 export const getSystemEvents = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -105,10 +74,6 @@ export const getSystemEvents = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * GET /calendar/goals
- * Returns goal checkpoints for the date range.
- */
 export const getGoalCheckpoints = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -124,10 +89,6 @@ export const getGoalCheckpoints = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * POST /calendar/goals
- * Creates a new goal checkpoint.
- */
 export const createGoalCheckpoint = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -145,10 +106,6 @@ export const createGoalCheckpoint = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * POST /calendar/recalculate
- * Manually triggers an aggregate recalculation for a specific day.
- */
 export const recalculateAggregate = async (req: AuthRequest, res: Response) => {
   try {
     const userId              = req.user!.id;
@@ -162,10 +119,6 @@ export const recalculateAggregate = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/**
- * POST /calendar/initialize
- * Bootstraps default capacity and work schedule for a user.
- */
 export const initializeUserSettings = async (req: AuthRequest, res: Response) => {
   try {
     await CalendarMutation.initializeUserSettings(req.user!.id);

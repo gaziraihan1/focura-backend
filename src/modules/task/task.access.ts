@@ -1,28 +1,9 @@
-/**
- * task.access.ts
- * Responsibility: Authorization checks for the Task domain.
- *
- * Performance fix — checkEditPermission:
- *  The original fetched the task with full detail (comments, subtasks, files).
- *  Only project + workspace member roles are needed for the permission check.
- *  New version uses taskPermissionInclude — ~10× lighter query.
- */
 
 import { prisma } from '../../index.js';
 import type { EditPermissionResult } from './task.types.js';
 import { taskPermissionInclude } from './task.selects.js';
 
 export const TaskAccess = {
-  /**
-   * Checks if a user can edit a task.
-   *
-   * Rules:
-   *  - Personal task (no project): only the creator can edit
-   *  - Project task: creator OR project MANAGER OR workspace OWNER/ADMIN can edit
-   *
-   * Performance: uses taskPermissionInclude instead of full task detail.
-   * Returns the task so callers can reuse it (avoids double fetch).
-   */
   async checkEditPermission(
     taskId: string,
     userId: string,
@@ -39,7 +20,6 @@ export const TaskAccess = {
     const isOwner       = task.createdById === userId;
     const isPersonalTask = !task.projectId;
 
-    // Personal task: only owner can edit
     if (isPersonalTask) {
       if (!isOwner) {
         return { canEdit: false, reason: 'Only the task owner can edit personal tasks' };
@@ -47,7 +27,6 @@ export const TaskAccess = {
       return { canEdit: true, task };
     }
 
-    // Project task: check roles
     const projectMember = task.project?.members?.find((m) => m.userId === userId);
     const isProjectManager = projectMember?.role === 'MANAGER';
 
@@ -66,10 +45,6 @@ export const TaskAccess = {
     return { canEdit: true, task };
   },
 
-  /**
-   * Verifies the user can access a task (read permission).
-   * Used in getTaskById — throws if access denied.
-   */
   async assertTaskAccess(taskId: string, userId: string) {
     const task = await prisma.task.findFirst({
       where: {
@@ -98,10 +73,6 @@ export const TaskAccess = {
     return task;
   },
 
-  /**
-   * Verifies the user can delete a task.
-   * Only creator OR workspace OWNER/ADMIN can delete.
-   */
   async assertDeletePermission(taskId: string, userId: string) {
     const task = await prisma.task.findFirst({
       where: {

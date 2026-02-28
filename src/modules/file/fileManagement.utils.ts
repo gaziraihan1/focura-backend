@@ -1,7 +1,3 @@
-/**
- * fileManagement.utils.ts
- * Pure utility functions for file categorization and formatting.
- */
 
 export function bytesToMB(bytes: number): number {
   return Math.round((bytes / (1024 * 1024)) * 100) / 100;

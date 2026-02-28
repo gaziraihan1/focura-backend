@@ -1,7 +1,3 @@
-/**
- * storage/index.ts
- * Responsibility: Public API surface of the Storage module.
- */
 
 export { StorageQuery }    from './storage.query.js';
 export { StorageMutation } from './storage.mutation.js';

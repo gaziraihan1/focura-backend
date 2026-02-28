@@ -1,16 +1,3 @@
-/**
- * task.notifications.ts
- * Responsibility: Notification callbacks for Task mutations.
- *
- * The original had direct calls to `notifyUser`, `notifyTaskAssignees`,
- * and `notifyMentions` embedded inside createTask, updateTask, etc.
- *
- * Extracted here using the callback pattern (same as focusSession module).
- * The mutation accepts an optional callback, the controller provides it.
- * Task module never imports from notification helpers directly.
- *
- * All functions are fire-and-forget (void promises).
- */
 
 import {
   notifyUser,
@@ -20,9 +7,6 @@ import {
 import { prisma } from '../../index.js';
 
 export const TaskNotifications = {
-  /**
-   * Notifies newly assigned users when a task is created.
-   */
   async notifyNewAssignees(params: {
     taskId:       string;
     taskTitle:    string;
@@ -38,7 +22,7 @@ export const TaskNotifications = {
       });
 
       for (const userId of params.assigneeIds) {
-        if (userId === params.creatorId) continue; // Don't notify creator
+        if (userId === params.creatorId) continue;
 
         notifyUser({
           userId,
@@ -54,10 +38,6 @@ export const TaskNotifications = {
     }
   },
 
-  /**
-   * Notifies newly added assignees when a task is updated.
-   * Only notifies users who weren't already assigned.
-   */
   async notifyAddedAssignees(params: {
     taskId:        string;
     taskTitle:     string;
@@ -89,9 +69,6 @@ export const TaskNotifications = {
     }
   },
 
-  /**
-   * Notifies all assignees when a task is completed.
-   */
   async notifyTaskCompleted(params: {
     taskId:    string;
     taskTitle: string;
@@ -111,9 +88,6 @@ export const TaskNotifications = {
     }
   },
 
-  /**
-   * Notifies task assignees when a comment is added.
-   */
   async notifyNewComment(params: {
     taskId:       string;
     taskTitle:    string;
@@ -134,9 +108,6 @@ export const TaskNotifications = {
     }
   },
 
-  /**
-   * Notifies mentioned users in a comment.
-   */
   async notifyCommentMentions(params: {
     taskId:        string;
     taskTitle:     string;

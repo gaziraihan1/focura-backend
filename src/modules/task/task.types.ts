@@ -1,19 +1,9 @@
-/**
- * task.types.ts
- * Responsibility: All types, interfaces, and domain enums for the Task domain.
- *
- * The original had ~15 inline anonymous types across functions.
- * All extracted here with proper names.
- */
 
-// ─── Domain enums ─────────────────────────────────────────────────────────────
 
 export type TaskStatus   = 'TODO' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 export type TaskPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
 export type TaskIntent   = 'EXECUTION' | 'PLANNING' | 'REVIEW' | 'LEARNING' | 'COMMUNICATION';
 export type EnergyType   = 'LOW' | 'MEDIUM' | 'HIGH';
-
-// ─── Filter params ────────────────────────────────────────────────────────────
 
 export interface TaskFilterParams {
   userId:      string;
@@ -36,8 +26,6 @@ export interface SortParams {
   sortBy?:    'dueDate' | 'priority' | 'status' | 'createdAt' | 'title';
   sortOrder?: 'asc' | 'desc';
 }
-
-// ─── Input shapes ─────────────────────────────────────────────────────────────
 
 export interface CreateTaskInput {
   title:            string;
@@ -76,8 +64,6 @@ export interface UpdateTaskInput {
   intent?:           TaskIntent;
 }
 
-// ─── Response shapes ──────────────────────────────────────────────────────────
-
 export interface TimeTracking {
   hoursSinceCreation: number;
   hoursUntilDue:      number | null;
@@ -115,12 +101,6 @@ export interface EditPermissionResult {
   reason?: string;
 }
 
-// ─── Minimal typed shapes for permission checks ──────────────────────────────
-
-/**
- * Minimal task shape needed for permission checks.
- * Avoids fetching full task with comments/subtasks/files.
- */
 export interface TaskForPermission {
   id:          string;
   createdById: string;
@@ -133,9 +113,6 @@ export interface TaskForPermission {
   } | null;
 }
 
-/**
- * Minimal task shape needed for time tracking computation.
- */
 export interface TaskForTimeTracking {
   createdAt:       Date;
   dueDate:         Date | null;

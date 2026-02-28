@@ -1,6 +1,3 @@
-/**
- * workspace.utils.ts
- */
 import { prisma } from "../../index.js";
 import * as slugifyModule from "slugify";
 const slugify = (slugifyModule as any).default || slugifyModule;

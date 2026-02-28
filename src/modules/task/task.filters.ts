@@ -1,40 +1,12 @@
-/**
- * task.filters.ts
- * Responsibility: Prisma where-clause construction for the Task domain.
- *
- * This is the most complex part of the task service — the "3 filtering modes":
- *  1. Project-specific tasks (projectId filter)
- *  2. Personal tasks (created OR assigned to me, across all workspaces)
- *  3. Workspace tasks (all tasks in workspace projects where I'm a member OR workspace admin)
- *
- * The original had these as private methods scattered across the service class.
- * Extracted here because:
- *  - This is pure query construction logic — no DB writes, no side effects.
- *  - Each builder can be unit-tested in isolation with mock params.
- *  - The complexity is encapsulated away from the query execution.
- *
- * Performance note: buildWorkspaceTasksFilter queries workspaceMember for role.
- * If called multiple times for the same user/workspace (e.g., getTasks + getTaskStats
- * on the same page load), that's 2 identical role queries. Caller should cache
- * the role if calling both.
- */
 
 import { prisma } from "../../index.js";
 import type { TaskFilterParams } from "./task.types.js";
 
 export const TaskFilters = {
-  /**
-   * SCENARIO 1: Filter tasks by specific project.
-   * Access control is handled separately — this just builds the where clause.
-   */
   buildProjectFilter(filters: TaskFilterParams): Record<string, unknown> {
     return { projectId: filters.projectId };
   },
 
-  /**
-   * SCENARIO 2: Personal tasks filter (no workspace).
-   * Shows tasks created by me OR assigned to me across ALL workspaces.
-   */
   buildPersonalTasksFilter(filters: TaskFilterParams): Record<string, unknown> {
     if (filters.type === "personal") {
       return {
@@ -53,7 +25,6 @@ export const TaskFilters = {
       return { createdById: filters.userId };
     }
 
-    // Default: all tasks related to me (created OR assigned)
     return {
       OR: [
         { createdById: filters.userId },
@@ -62,17 +33,6 @@ export const TaskFilters = {
     };
   },
 
-  /**
-   * SCENARIO 3: Workspace tasks filter.
-   * Shows tasks from projects in this workspace where:
-   *  - User is workspace owner/admin (sees ALL workspace tasks), OR
-   *  - User is a member of the project, OR
-   *  - Task is created by user, OR
-   *  - Task is assigned to user
-   *
-   * Performance: queries workspaceMember for role — caller should cache this
-   * if calling multiple filter builders for the same workspace.
-   */
   async buildWorkspaceTasksFilter(
     filters: TaskFilterParams,
   ): Promise<Record<string, unknown>> {
@@ -92,7 +52,6 @@ export const TaskFilters = {
       project: { workspaceId: filters.workspaceId },
     };
 
-    // Workspace owner/admin: show ALL workspace tasks
     if (isWorkspaceAdmin) {
       console.log(
         "👑 User is workspace OWNER/ADMIN - showing all workspace tasks",
@@ -113,11 +72,9 @@ export const TaskFilters = {
         };
       }
 
-      // For 'all' or no type: show ALL workspace tasks
       return baseWorkspaceCondition;
     }
 
-    // Regular member: show tasks where user is involved
     console.log("👤 User is workspace MEMBER - filtering by involvement");
 
     const userInvolvementConditions = {
@@ -136,7 +93,6 @@ export const TaskFilters = {
     };
 
     if (filters.type === "personal") {
-      // Personal tasks don't belong to workspace
       return { id: "no-personal-tasks-in-workspace" };
     }
 
@@ -155,16 +111,11 @@ export const TaskFilters = {
       };
     }
 
-    // Default: tasks in workspace where user is involved
     return {
       AND: [baseWorkspaceCondition, userInvolvementConditions],
     };
   },
 
-  /**
-   * Applies additional filters (status, priority, labels, assignee) on top of
-   * the base where clause from the 3 scenarios above.
-   */
   applyAdditionalFilters(
     where: Record<string, unknown>,
     filters: TaskFilterParams,
@@ -189,10 +140,6 @@ export const TaskFilters = {
     return result;
   },
 
-  /**
-   * Applies search filter (title OR description contains query).
-   * Merges with existing where clause while preserving AND/OR structure.
-   */
   applySearchFilter(
     where: Record<string, unknown>,
     search: string,
@@ -204,7 +151,6 @@ export const TaskFilters = {
       ],
     };
 
-    // Merge search with existing where clause
     if (where.AND) {
       return {
         ...where,
@@ -227,9 +173,6 @@ export const TaskFilters = {
     }
   },
 
-  /**
-   * Builds the Prisma orderBy clause from sort params.
-   */
   buildOrderBy(
     sortBy: "dueDate" | "priority" | "status" | "createdAt" | "title",
     sortOrder: "asc" | "desc",

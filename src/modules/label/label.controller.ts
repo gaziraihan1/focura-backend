@@ -1,20 +1,3 @@
-/**
- * label.controller.ts
- * Responsibility: HTTP layer for the Label domain.
- *
- * Key improvement:
- *  The original had this block copy-pasted in every handler (8 times):
- *    const userId = req.user?.id;
- *    if (!userId) return res.status(401).json({ ... });
- *
- *  Replaced with `requireUserId(req, res)` — called once per handler,
- *  returns the id or sends 401 and returns null so the handler can early-exit.
- *
- *  The `handleError` function was already well-structured in the original
- *  and is kept as-is (moved here from the controller scope).
- *
- *  Static class → plain exported functions (no `this` binding issues).
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -35,12 +18,6 @@ import {
   labelsQuerySchema,
 } from './label.validators.js';
 
-// ─── Guards & error handler ───────────────────────────────────────────────────
-
-/**
- * Returns the authenticated user's id, or sends 401 and returns null.
- * Callers should early-return when this returns null.
- */
 function requireUserId(req: AuthRequest, res: Response): string | null {
   const userId = req.user?.id;
   if (!userId) {
@@ -84,9 +61,6 @@ function handleError(error: unknown, res: Response): void {
   res.status(500).json({ success: false, message: 'An unexpected error occurred' });
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-/** GET /?workspaceId=... */
 export const getLabels = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -101,7 +75,6 @@ export const getLabels = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /popular?workspaceId=...&limit=... */
 export const getPopularLabels = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -116,7 +89,6 @@ export const getPopularLabels = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /:id */
 export const getLabelById = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -129,7 +101,6 @@ export const getLabelById = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** POST / */
 export const createLabel = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -144,7 +115,6 @@ export const createLabel = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** PATCH /:id */
 export const updateLabel = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -159,7 +129,6 @@ export const updateLabel = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** DELETE /:id */
 export const deleteLabel = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -176,7 +145,6 @@ export const deleteLabel = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** POST /:labelId/tasks/:taskId */
 export const addLabelToTask = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);
@@ -195,7 +163,6 @@ export const addLabelToTask = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** DELETE /:labelId/tasks/:taskId */
 export const removeLabelFromTask = async (req: AuthRequest, res: Response) => {
   try {
     const userId = requireUserId(req, res);

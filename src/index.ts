@@ -4,17 +4,14 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import helmet from 'helmet';
 
-import { initNotificationCrons } from "./cron/notification.cron.js";
-
 import {projectRouter} from '../src/modules/project/index.js';
 import {taskRouter} from '../src/modules/task/index.js';
-import {dailyTaskRouter, initDailyTaskCrons} from '../src/modules/dailyTask/index.js'; // NEW
-// import fileRoutes from './routes/file.routes.js';
+import {dailyTaskRouter, initDailyTaskCrons} from '../src/modules/dailyTask/index.js';
 import {activityRouter} from '../src/modules/activity/index.js';
 import userRoutes from './routes/user.routes.js';
 import uploadRoutes from '../src/modules/upload/upload.routes.js';
 import {labelRouter} from '../src/modules/label/index.js';
-import {notificationRouter} from '../src/modules/notification/index.js';
+import {initNotificationCrons, notificationRouter} from '../src/modules/notification/index.js';
 import {workspaceRouter} from '../src/modules/workspace/index.js';
 import {calendarRouter} from '../src/modules/calendar/index.js';
 import {focusSessionRouter} from '../src/modules/focusSession/index.js';
@@ -22,6 +19,7 @@ import {storageRouter} from '../src/modules/storage/index.js';
 import {analyticsRouter} from '../src/modules/analytics/index.js';
 import {fileManagementRouter} from '../src/modules/file/index.js';
 import logoutRoutes from './routes/auth.routes.js';
+import workspaceUsageRoutes from './routes/workspace-usage.routes.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -52,11 +50,11 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'x-show-error-toast', 
+    'Content-Type',
+    'Authorization',
+    'x-show-error-toast',
     'x-show-success-toast'
-  ], 
+  ],
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -89,12 +87,12 @@ app.use((req: Request, res: Response, next) => {
 });
 
 initNotificationCrons();
-initDailyTaskCrons(); // NEW: Start daily task cleanup cron
+initDailyTaskCrons();
 
 app.get('/health', async (req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    
+
     res.json({
       status: 'OK',
       timestamp: new Date().toISOString(),
@@ -119,10 +117,10 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
   if (isProd) {
     return res.status(403).json({ error: 'Debug endpoint disabled in production' });
   }
-  
+
   const authHeader = req.headers.authorization;
   const hasBearer = authHeader?.startsWith('Bearer ');
-  
+
   res.json({
     environment: process.env.NODE_ENV,
     hasAuthHeader: !!authHeader,
@@ -136,8 +134,8 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
 app.use('/api/notifications', notificationRouter);
 app.use('/api/workspaces', authenticate, workspaceRouter);
 app.use('/api/projects', authenticate, projectRouter);
-app.use('/api/tasks', authenticate, taskRouter);  
-app.use('/api/daily-tasks', authenticate, dailyTaskRouter); // NEW: Daily task prioritization
+app.use('/api/tasks', authenticate, taskRouter);
+app.use('/api/daily-tasks', authenticate, dailyTaskRouter);
 app.use('/api/activities', authenticate, activityRouter);
 app.use('/api/user', authenticate, userRoutes);
 app.use('/api/upload', authenticate, uploadRoutes);
@@ -148,6 +146,7 @@ app.use('/api/storage', authenticate, storageRouter);
 app.use('/api/analytics', authenticate, analyticsRouter);
 app.use('/api/file-management', authenticate, fileManagementRouter);
 app.use('/api/auth', logoutRoutes)
+app.use('/api/workspace-usage', authenticate, workspaceUsageRoutes)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);
@@ -169,8 +168,8 @@ const server = app.listen(PORT, () => {
   console.log(`🔒 HTTPS Required: ${isProd}`);
   console.log(`🔑 Auth Method: Authorization Header (Bearer Token)`);
   console.log(`📡 SSE: /api/notifications/stream/:userId?token=`);
-  console.log(`📅 Daily Tasks: /api/daily-tasks (PRIMARY/SECONDARY prioritization)`); // NEW
-  console.log(`⏰ Cron Jobs: Notifications + Daily Task Cleanup`); // NEW
+  console.log(`📅 Daily Tasks: /api/daily-tasks (PRIMARY/SECONDARY prioritization)`);
+  console.log(`⏰ Cron Jobs: Notifications + Daily Task Cleanup`);
   console.log('='.repeat(60));
 }).on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
@@ -183,10 +182,10 @@ const server = app.listen(PORT, () => {
 
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n${signal} received, shutting down gracefully...`);
-  
+
   server.close(async () => {
     console.log('✅ HTTP server closed');
-    
+
     try {
       await prisma.$disconnect();
       console.log('✅ Database disconnected');
@@ -197,7 +196,7 @@ const gracefulShutdown = async (signal: string) => {
       process.exit(1);
     }
   });
-  
+
   setTimeout(() => {
     console.error('⚠️  Forcing shutdown after timeout');
     process.exit(1);

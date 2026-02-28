@@ -1,10 +1,3 @@
-/**
- * project.controller.ts
- * Responsibility: HTTP layer for the Project domain.
- *
- * handleError already well-structured in the original — kept as-is.
- * Static class → plain exported functions (no this binding issues with Express).
- */
 
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -23,8 +16,6 @@ import {
   addProjectMemberSchema,
   updateProjectMemberRoleSchema,
 } from './project.validators.js';
-
-// ─── Error handler ─────────────────────────────────────────────────────────────
 
 function handleError(error: unknown, res: Response): void {
   if (error instanceof z.ZodError) {
@@ -55,9 +46,6 @@ function handleError(error: unknown, res: Response): void {
   res.status(500).json({ success: false, message: 'An unexpected error occurred' });
 }
 
-// ─── Handlers ─────────────────────────────────────────────────────────────────
-
-/** GET /projects/user/all */
 export const getUserProjects = async (req: AuthRequest, res: Response) => {
   try {
     const projects = await ProjectQuery.getUserProjects(req.user!.id);
@@ -67,7 +55,6 @@ export const getUserProjects = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /projects/:projectId */
 export const getProjectDetails = async (req: AuthRequest, res: Response) => {
   try {
     const project = await ProjectQuery.getProjectDetails(req.user!.id, req.params.projectId);
@@ -77,7 +64,6 @@ export const getProjectDetails = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** GET /projects/workspace/:workspaceId */
 export const getProjectsByWorkspace = async (req: AuthRequest, res: Response) => {
   try {
     const projects = await ProjectQuery.getProjectsByWorkspace(req.user!.id, req.params.workspaceId);
@@ -87,7 +73,6 @@ export const getProjectsByWorkspace = async (req: AuthRequest, res: Response) =>
   }
 };
 
-/** POST /projects */
 export const createProject = async (req: AuthRequest, res: Response) => {
   try {
     const data    = createProjectSchema.parse(req.body);
@@ -99,7 +84,6 @@ export const createProject = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** PATCH /projects/:projectId */
 export const updateProject = async (req: AuthRequest, res: Response) => {
   try {
     const data    = updateProjectSchema.parse(req.body);
@@ -111,7 +95,6 @@ export const updateProject = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** DELETE /projects/:projectId */
 export const deleteProject = async (req: AuthRequest, res: Response) => {
   try {
     await ProjectMutation.deleteProject(req.user!.id, req.params.projectId);
@@ -121,7 +104,6 @@ export const deleteProject = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** POST /projects/:projectId/members */
 export const addProjectMember = async (req: AuthRequest, res: Response) => {
   try {
     const data   = addProjectMemberSchema.parse(req.body);
@@ -133,7 +115,6 @@ export const addProjectMember = async (req: AuthRequest, res: Response) => {
   }
 };
 
-/** PATCH /projects/:projectId/members/:memberId */
 export const updateProjectMemberRole = async (req: AuthRequest, res: Response) => {
   try {
     const data   = updateProjectMemberRoleSchema.parse(req.body);
@@ -147,7 +128,6 @@ export const updateProjectMemberRole = async (req: AuthRequest, res: Response) =
   }
 };
 
-/** DELETE /projects/:projectId/members/:memberId */
 export const removeProjectMember = async (req: AuthRequest, res: Response) => {
   try {
     await ProjectMutation.removeProjectMember(

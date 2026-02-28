@@ -1,28 +1,48 @@
-// backend/src/sockets/notification.stream.ts
-// STATUS: MODIFY
-// CHANGES:
-//   - Removed ALL authentication from the SSE stream (as requested)
-//   - Kept userId param for routing notifications to the right client
-//   - Kept audit logging for connection tracking
 
 import { Request, Response } from "express";
+import jwt from "jsonwebtoken";
+import { verifyToken } from "../lib/auth/backendToken.js";
 import { auditLog } from "../lib/auth/auditLog.js";
 
 const clients = new Map<string, Response>();
+
 const getIp = (req: Request) =>
   (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
   req.socket.remoteAddress ||
   "unknown";
 
 export async function notificationStream(req: Request, res: Response) {
-  const userId = req.params.userId;
-  const ip     = getIp(req);
+  const ip    = getIp(req);
+  const token = (req.query.token as string)?.trim();
 
-  if (!userId) {
-    return res.status(400).json({ success: false, message: "userId is required" });
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication token required",
+      code:    "NO_TOKEN",
+    });
   }
 
-  // ─── SSE Setup ──────────────────────────────────────────────────────────
+  let userId: string;
+
+  try {
+    const decoded = verifyToken(token, "access");
+    userId = decoded.id;
+  } catch (err: any) {
+    if (err instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({
+        success: false,
+        message: "Token expired",
+        code:    "TOKEN_EXPIRED",
+      });
+    }
+    return res.status(401).json({
+      success: false,
+      message: "Invalid token",
+      code:    "INVALID_TOKEN",
+    });
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -33,19 +53,11 @@ export async function notificationStream(req: Request, res: Response) {
     res.setHeader("Access-Control-Allow-Credentials", "true");
   }
 
-  // Send initial confirmation
-  res.write(
-    `data: ${JSON.stringify({
-      type: "connected",
-      userId,
-      timestamp: new Date().toISOString(),
-    })}\n\n`
-  );
+  res.write(`data: ${JSON.stringify({ type: "connected", timestamp: new Date().toISOString() })}\n\n`);
 
   clients.set(userId, res);
   auditLog("SSE_CONNECTED", { userId, ip });
 
-  // Heartbeat every 30 seconds to keep connection alive
   const heartbeat = setInterval(() => {
     try {
       res.write(`: heartbeat ${Date.now()}\n\n`);
@@ -66,8 +78,6 @@ export async function notificationStream(req: Request, res: Response) {
     clients.delete(userId);
   });
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 export function sendNotificationToUser(userId: string, notification: any): boolean {
   const client = clients.get(userId);

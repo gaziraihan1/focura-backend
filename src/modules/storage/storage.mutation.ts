@@ -1,15 +1,3 @@
-/**
- * storage.mutation.ts
- * Responsibility: Write operations for the Storage domain.
- *
- * Two mutations:
- *  - bulkDeleteFiles: admin check + ownership filter + deleteMany
- *  - canUploadFile:   storage info check + plan limit check (read-only guard
- *    but lives here because it gates a write operation)
- *
- * Performance: bulkDeleteFiles fetches isAdmin once, then reuses result
- * for the ownership filter — no second admin check.
- */
 
 import { prisma } from '../../index.js';
 import type { BulkDeleteResult, UploadCheckResult } from './storage.types.js';
@@ -18,19 +6,11 @@ import { StorageQuery }  from './storage.query.js';
 import { toMB, getMaxFileSizeForPlan } from './storage.utils.js';
 
 export const StorageMutation = {
-  /**
-   * Deletes files from a workspace.
-   * Users can only delete their own files; OWNER/ADMIN can delete any file.
-   *
-   * Returns a result object (never throws for partial-permission cases —
-   * the controller maps result.success to HTTP status).
-   */
   async bulkDeleteFiles(
     fileIds:     string[],
     workspaceId: string,
     userId:      string,
   ): Promise<BulkDeleteResult & { success: boolean; message: string }> {
-    // Single admin check — reused for the ownership filter below
     const isAdmin = await StorageAccess.isAdmin(userId, workspaceId);
 
     const files = await prisma.file.findMany({
@@ -88,9 +68,8 @@ export const StorageMutation = {
       return { success: false, message: 'File not found', freedMB: 0 };
     }
 
-    // Check permissions
     const isOwner = file.uploadedById === userId;
-    const isAdmin = file.workspace?.members[0]?.role === 'OWNER' || 
+    const isAdmin = file.workspace?.members[0]?.role === 'OWNER' ||
                     file.workspace?.members[0]?.role === 'ADMIN';
 
     if (!isOwner && !isAdmin) {
@@ -101,7 +80,6 @@ export const StorageMutation = {
       };
     }
 
-    // Delete from database
     await prisma.file.delete({ where: { id: fileId } });
 
     return {
@@ -111,19 +89,11 @@ export const StorageMutation = {
     };
   },
 
-  /**
-   * Checks whether a file of the given size can be uploaded to the workspace.
-   * Verifies both total storage capacity and per-file plan limit.
-   *
-   * Performance: reuses StorageQuery.getWorkspaceStorageInfo which now uses
-   * a DB-side aggregate instead of findMany+reduce.
-   */
   async canUploadFile(
     workspaceId:   string,
     userId:        string,
     fileSizeBytes: number,
   ): Promise<UploadCheckResult> {
-    // assertMember is called inside getWorkspaceStorageInfo — no double check
     const storageInfo = await StorageQuery.getWorkspaceStorageInfo(workspaceId, userId);
     const fileSizeMB  = fileSizeBytes / (1024 * 1024);
 
@@ -145,10 +115,6 @@ export const StorageMutation = {
     return { allowed: true };
   },
 
-  /**
-   * Records a file upload in the database.
-   * Called after successful Cloudinary upload.
-   */
   async recordFileUpload(params: {
     userId:       string;
     workspaceId:  string;
@@ -162,7 +128,6 @@ export const StorageMutation = {
     projectId?:   string;
     taskId?:      string;
   }) {
-    // Verify user is a workspace member
     await StorageAccess.assertMember(params.userId, params.workspaceId);
 
     return prisma.file.create({

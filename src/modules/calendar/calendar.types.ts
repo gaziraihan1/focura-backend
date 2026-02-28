@@ -1,12 +1,3 @@
-/**
- * calendar.types.ts
- * Responsibility: All types and interfaces for the Calendar domain.
- *
- * Rules:
- *  - No imports from this module, no logic, no side effects.
- *  - Prisma model types are re-exported here so callers
- *    never need to import from @prisma/client directly.
- */
 
 export type {
   CalendarDayAggregate,
@@ -15,16 +6,12 @@ export type {
   SystemCalendarEvent,
 } from '@prisma/client';
 
-// ─── Filter shapes ─────────────────────────────────────────────────────────────
-
 export interface CalendarFilters {
   userId: string;
   workspaceId?: string;
   startDate: Date;
   endDate: Date;
 }
-
-// ─── Computed / derived shapes ─────────────────────────────────────────────────
 
 export interface TimeAllocation {
   deepWork: number;
@@ -40,11 +27,8 @@ export interface CalendarInsights {
   overloadedDays: number;
   focusDays: number;
   burnoutRisk: string;
-  /** null until real category tracking is implemented */
   timeAllocation: TimeAllocation | null;
 }
-
-// ─── Mutation input shapes ─────────────────────────────────────────────────────
 
 export interface CreateGoalCheckpointInput {
   userId: string;
