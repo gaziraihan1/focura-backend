@@ -218,6 +218,7 @@ src/
 │       ├── workspace.utils.ts
 │       ├── workspace.validators.ts
 │       └── index.ts
+│    │
 │
 ├── sockets/
 │   └── notification.stream.ts  # SSE connection manager

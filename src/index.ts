@@ -19,7 +19,7 @@ import {storageRouter} from '../src/modules/storage/index.js';
 import {analyticsRouter} from '../src/modules/analytics/index.js';
 import {fileManagementRouter} from '../src/modules/file/index.js';
 import logoutRoutes from './routes/auth.routes.js';
-import workspaceUsageRoutes from './routes/workspace-usage.routes.js';
+import {workspaceUsageRouter} from '../src/modules/workspaceUsage/index.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -146,7 +146,7 @@ app.use('/api/storage', authenticate, storageRouter);
 app.use('/api/analytics', authenticate, analyticsRouter);
 app.use('/api/file-management', authenticate, fileManagementRouter);
 app.use('/api/auth', logoutRoutes)
-app.use('/api/workspace-usage', authenticate, workspaceUsageRoutes)
+app.use('/api/workspace-usage', authenticate, workspaceUsageRouter)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);

@@ -1,6 +1,6 @@
 import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth.js';
-import { WorkspaceUsageService } from '../services/workspace-usage.service.js';
+import { AuthRequest } from '../../middleware/auth.js';
+import { WorkspaceUsageQuery } from './workspaceUsage.query.js';
 
 export class WorkspaceUsageController {
   static async getWorkspaceUsage(req: AuthRequest, res: Response) {
@@ -14,7 +14,7 @@ export class WorkspaceUsageController {
 
       const { workspaceId } = req.params;
 
-      const data = await WorkspaceUsageService.getWorkspaceUsage(
+      const data = await WorkspaceUsageQuery.getWorkspaceUsage(
         workspaceId,
         req.user.id
       );
