@@ -45,18 +45,18 @@ export const TIER_LIMITS: Record<string, UploadLimits> = {
     minUploadIntervalSeconds: 300, // 5 minutes
   },
   PRO: {
-    maxFileSizeMB: 12,
+    maxFileSizeMB: 25,
     maxDailyUploads: 30,
     minUploadIntervalSeconds: 120, // No rate limit
   },
   BUSINESS: {
-    maxFileSizeMB: 30,
+    maxFileSizeMB: 100,
     maxDailyUploads: 100,
     minUploadIntervalSeconds: 30, // No rate limit
   },
   ENTERPRISE: {
-    maxFileSizeMB: 100,
-    maxDailyUploads: 500,
+    maxFileSizeMB: 500,
+    maxDailyUploads: 999,
     minUploadIntervalSeconds: 0, // No rate limit
   },
 };

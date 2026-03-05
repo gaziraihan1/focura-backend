@@ -15,6 +15,11 @@ import {
   updateTaskStatusSchema,
   addCommentSchema,
 } from './task.validators.js';
+import {
+  getPersonalQuotaInfo,
+  getWorkspaceQuotaInfo,
+} from './task.limits.js';
+
 
 function handleError(res: Response, label: string, error: unknown): void {
   if (error instanceof z.ZodError) {
@@ -206,5 +211,42 @@ export const deleteTask = async (req: AuthRequest, res: Response) => {
     res.json({ success: true, message: 'Task deleted successfully' });
   } catch (error) {
     handleError(res, 'delete task', error);
+  }
+};
+
+
+/**
+ * GET /tasks/quota/personal
+ * Returns the current user's personal task creation quota for today.
+ */
+export const getPersonalQuota = async (req: AuthRequest, res: Response) => {
+  try {
+    const info = await getPersonalQuotaInfo(req.user!.id);
+    res.json({ success: true, data: info });
+  } catch (error) {
+    console.error('getPersonalQuota error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch quota info' });
+  }
+};
+
+/**
+ * GET /tasks/quota/workspace/:workspaceId
+ * Returns workspace task creation quota for today.
+ * - All members see totals + their own usage.
+ * - OWNER / ADMIN also see per-member breakdown.
+ */
+export const getWorkspaceQuota = async (req: AuthRequest, res: Response) => {
+  try {
+    const { workspaceId } = req.params;
+    if (!workspaceId) {
+      res.status(400).json({ success: false, message: 'workspaceId is required' });
+      return;
+    }
+
+    const info = await getWorkspaceQuotaInfo(workspaceId, req.user!.id);
+    res.json({ success: true, data: info });
+  } catch (error) {
+    console.error('getWorkspaceQuota error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch workspace quota info' });
   }
 };
