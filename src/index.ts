@@ -20,6 +20,7 @@ import {analyticsRouter} from '../src/modules/analytics/index.js';
 import {fileManagementRouter} from '../src/modules/file/index.js';
 import logoutRoutes from './routes/auth.routes.js';
 import {workspaceUsageRouter} from '../src/modules/workspaceUsage/index.js';
+import { meetingRoutes } from './modules/meeting/index.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -147,6 +148,7 @@ app.use('/api/analytics', authenticate, analyticsRouter);
 app.use('/api/file-management', authenticate, fileManagementRouter);
 app.use('/api/auth', logoutRoutes)
 app.use('/api/workspace-usage', authenticate, workspaceUsageRouter)
+app.use('/api/meetings', authenticate, meetingRoutes)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);

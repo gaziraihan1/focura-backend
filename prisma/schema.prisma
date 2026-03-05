@@ -54,6 +54,9 @@ model User {
   systemEvents           SystemCalendarEvent[]
   burnoutSignals         BurnoutSignal[]
   UploadRateLimit        UploadRateLimit[]
+  createdMeetings   Meeting[]         @relation("MeetingCreator")
+  meetingAttendees  MeetingAttendee[]
+
 }
 
 enum UserPlan {
@@ -160,6 +163,7 @@ model Workspace {
   goalCheckpoints GoalCheckpoint[]
   systemEvents    SystemCalendarEvent[]
   uploadRateLimit UploadRateLimit[]
+  meetings          Meeting[]
 
   @@index([ownerId])
   @@index([slug])
@@ -518,7 +522,62 @@ enum RecurrencePattern {
   CUSTOM
 }
 
+model Meeting {
+  id          String        @id @default(cuid())
+  title       String
+  description String?       @db.Text
+  link        String?
+  location    String?
 
+  visibility  MeetingVisibility @default(PUBLIC)
+  status      MeetingStatus     @default(SCHEDULED)
+
+  startTime   DateTime
+  endTime     DateTime
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspaceId String
+  createdById String
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("MeetingCreator", fields: [createdById], references: [id])
+
+  attendees   MeetingAttendee[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([startTime])
+  @@index([status])
+  @@index([visibility])
+}
+
+model MeetingAttendee {
+  id        String   @id @default(cuid())
+  meetingId String
+  userId    String
+  joinedAt  DateTime @default(now())
+
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+  @@index([meetingId])
+  @@index([userId])
+}
+
+enum MeetingVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
 
 model UserCapacity {
   id        String   @id @default(cuid())
@@ -883,6 +942,10 @@ enum NotificationType {
   PROJECT_UPDATE
   FILE_SHARED
   DEADLINE_REMINDER
+  MEETING_CREATED
+  MEETING_UPDATED
+  MEETING_CANCELLED
+  MEETING_REMINDER
 }
 
 

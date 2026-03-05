@@ -1,0 +1,1 @@
+export {default as meetingRoutes} from './meeting.routes.js'
