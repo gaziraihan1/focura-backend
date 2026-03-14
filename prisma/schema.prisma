@@ -7,6 +7,288 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ---------------------------------------------------------------------------
+// PLAN DEFINITIONS — stored in DB so admins can change limits without a deploy
+// ---------------------------------------------------------------------------
+
+model Plan {
+  id          String  @id @default(cuid())
+  name        String  @unique  // "FREE" | "PRO" | "BUSINESS"
+  displayName String           // "Free" | "Pro" | "Business"
+  description String?
+
+  // Stripe IDs (populated after creating products/prices in Stripe dashboard)
+  stripeProductId      String? @unique
+  stripePriceIdMonthly String? @unique
+  stripePriceIdYearly  String? @unique
+
+  // ---- Per-workspace limits ------------------------------------------------
+  maxMembersPerWs  Int     @default(5)    // -1 = unlimited
+  maxStorageMb     Int     @default(500)  // -1 = unlimited
+  maxFileSizeMb    Int     @default(10)
+  maxMeetingsPerMo Int     @default(10)   // -1 = unlimited
+  maxProjects      Int     @default(3)    // -1 = unlimited
+  analyticsAccess  Boolean @default(false)
+  prioritySupport  Boolean @default(false)
+  apiAccess        Boolean @default(false)
+  customBranding   Boolean @default(false)
+  advancedReports  Boolean @default(false)
+
+  // ---- User-level limit ----------------------------------------------------
+  // How many workspaces a user can OWN when this is their highest active plan.
+  // -1 = unlimited. Enforced at workspace creation, not per workspace.
+  maxWorkspacesOwned Int @default(3)
+
+  // Display pricing (UI only — source of truth is Stripe)
+  monthlyPriceCents Int @default(0)
+  yearlyPriceCents  Int @default(0)
+
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+// ---------------------------------------------------------------------------
+// SUBSCRIPTION — one per workspace (or null = FREE with no Stripe subscription)
+// ---------------------------------------------------------------------------
+
+model Subscription {
+  id          String @id @default(cuid())
+  workspaceId String @unique  // one active subscription per workspace
+
+  // Stripe identifiers
+  stripeSubscriptionId String  @unique
+  stripeCustomerId     String  // the workspace owner's Stripe customer ID
+  stripePriceId        String
+  stripeProductId      String?
+
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  billingCycle BillingCycle @default(MONTHLY)
+  status       SubStatus    @default(ACTIVE)
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+
+  cancelAtPeriodEnd Boolean   @default(false)
+  canceledAt        DateTime?
+  cancelReason      String?
+
+  trialStart DateTime?
+  trialEnd   DateTime?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoices  Invoice[]
+
+  @@index([stripeSubscriptionId])
+  @@index([stripeCustomerId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  PAUSED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+}
+
+// ---------------------------------------------------------------------------
+// INVOICE — one per billing cycle per workspace
+// ---------------------------------------------------------------------------
+
+model Invoice {
+  id              String @id @default(cuid())
+  stripeInvoiceId String @unique
+
+  subscriptionId String?
+  workspaceId    String?  // denormalised for fast queries
+  // who paid (workspace owner at time of payment)
+  payerId        String?
+
+  amountDue       Int
+  amountPaid      Int
+  amountRemaining Int    @default(0)
+  currency        String @default("usd")
+
+  status        InvoiceStatus @default(DRAFT)
+  invoiceNumber String?
+  invoicePdf    String?
+  hostedUrl     String?
+
+  periodStart DateTime?
+  periodEnd   DateTime?
+  dueDate     DateTime?
+  paidAt      DateTime?
+
+  lineItems    Json?
+  attemptCount Int       @default(0)
+  lastError    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@index([workspaceId])
+  @@index([payerId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  UNCOLLECTIBLE
+}
+
+// ---------------------------------------------------------------------------
+// PAYMENT — every charge attempt
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id                    String  @id @default(cuid())
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String? @unique
+
+  workspaceId String?
+  payerId     String?  // userId of the person who was charged
+  invoiceId   String?
+
+  amount   Int
+  currency String @default("usd")
+  status   PaymentStatus @default(PENDING)
+
+  paymentMethod String?
+  last4         String?
+
+  failureCode    String?
+  failureMessage String?
+
+  refundedAmount Int      @default(0)
+  refundedAt     DateTime?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([payerId])
+  @@index([invoiceId])
+  @@index([status])
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELED
+}
+
+// ---------------------------------------------------------------------------
+// USAGE RECORDS — per-workspace metered usage
+// ---------------------------------------------------------------------------
+
+model UsageRecord {
+  id          String @id @default(cuid())
+  workspaceId String
+
+  metric    UsageMetric
+  value     Int         @default(0)
+  limit     Int         // snapshot of plan limit at record time
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([workspaceId, metric, periodStart])
+  @@index([workspaceId, metric])
+  @@index([periodStart])
+}
+
+enum UsageMetric {
+  MEMBERS
+  STORAGE_MB
+  MEETINGS_PER_MONTH
+  PROJECTS
+  FILE_UPLOADS
+  API_CALLS
+}
+
+// ---------------------------------------------------------------------------
+// BILLING EVENT — immutable audit log
+// ---------------------------------------------------------------------------
+
+model BillingEvent {
+  id          String @id @default(cuid())
+  workspaceId String?
+  payerId     String?  // userId of workspace owner
+
+  stripeEventId String? @unique
+
+  type      BillingEventType
+  payload   Json
+  processed Boolean          @default(false)
+  error     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([stripeEventId])
+  @@index([type])
+  @@index([processed])
+  @@index([createdAt])
+}
+
+enum BillingEventType {
+  CHECKOUT_COMPLETED
+  SUBSCRIPTION_CREATED
+  SUBSCRIPTION_UPDATED
+  SUBSCRIPTION_CANCELED
+  SUBSCRIPTION_TRIAL_ENDED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  PAYMENT_REFUNDED
+  INVOICE_CREATED
+  INVOICE_PAID
+  INVOICE_PAYMENT_FAILED
+  INVOICE_VOIDED
+  PLAN_UPGRADED
+  PLAN_DOWNGRADED
+  CUSTOMER_CREATED
+}
+
+// ---------------------------------------------------------------------------
+// USER — only change is adding stripeCustomerId
+// The user's "plan" field is removed — plan lives on the Workspace now.
+// ---------------------------------------------------------------------------
 
 model User {
   id                  String    @id @default(cuid())
@@ -19,7 +301,11 @@ model User {
   bio                 String?
   timezone            String?   @default("UTC")
   role                UserRole  @default(USER)
-  plan                UserPlan  @default(FREE)
+
+  // stripeCustomerId — the user as the *payer* across all their workspaces.
+  // One Stripe customer per user; they can have multiple workspace subscriptions
+  // all billed under the same Stripe customer.
+  stripeCustomerId String? @unique
 
   theme         String? @default("system")
   notifications Boolean @default(true)
@@ -54,16 +340,10 @@ model User {
   systemEvents           SystemCalendarEvent[]
   burnoutSignals         BurnoutSignal[]
   UploadRateLimit        UploadRateLimit[]
-  createdMeetings   Meeting[]         @relation("MeetingCreator")
-  meetingAttendees  MeetingAttendee[]
+  createdMeetings        Meeting[]         @relation("MeetingCreator")
+  meetingAttendees       MeetingAttendee[]
 
-}
-
-enum UserPlan {
-  FREE
-  PRO
-  BUSINESS
-  ENTERPRISE
+  @@index([stripeCustomerId])
 }
 
 enum UserRole {
@@ -71,6 +351,61 @@ enum UserRole {
   ADMIN
   SUPER_ADMIN
 }
+
+// ---------------------------------------------------------------------------
+// WORKSPACE — plan lives here now, with a direct Subscription relation
+// ---------------------------------------------------------------------------
+
+model Workspace {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
+  logo        String?
+  color       String? @default("#667eea")
+
+  isPublic     Boolean @default(false)
+  allowInvites Boolean @default(true)
+
+  plan       WorkspacePlan @default(FREE)
+  maxMembers Int           @default(5)    // synced from Plan on subscription change
+  maxStorage Int           @default(1024)  // MB, synced from Plan
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerId String
+  owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  subscription Subscription?
+
+  members         WorkspaceMember[]
+  projects        Project[]
+  tasks           Task[]
+  labels          Label[]
+  files           File[]
+  activities      Activity[]
+  invitations     WorkspaceInvitation[]
+  goalCheckpoints GoalCheckpoint[]
+  systemEvents    SystemCalendarEvent[]
+  uploadRateLimit UploadRateLimit[]
+  meetings        Meeting[]
+
+  @@index([ownerId])
+  @@index([slug])
+  @@index([plan])
+}
+
+enum WorkspacePlan {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+// ---------------------------------------------------------------------------
+// ALL REMAINING MODELS — unchanged from original schema
+// ---------------------------------------------------------------------------
 
 model Account {
   id                String  @id @default(cuid())
@@ -85,9 +420,7 @@ model Account {
   scope             String?
   id_token          String? @db.Text
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([provider, providerAccountId])
 }
 
@@ -103,7 +436,6 @@ model VerificationToken {
   identifier String
   token      String   @unique
   expires    DateTime
-
   @@unique([identifier, token])
 }
 
@@ -113,7 +445,6 @@ model PasswordResetToken {
   token     String   @unique
   expires   DateTime
   createdAt DateTime @default(now())
-
   @@unique([email, token])
 }
 
@@ -125,157 +456,96 @@ model RefreshToken {
   replacedById String?
   expiresAt    DateTime
   createdAt    DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId])
 }
 
-
-model Workspace {
-  id          String  @id @default(cuid())
-  name        String
-  slug        String  @unique
-  description String?
-  logo        String?
-  color       String? @default("#667eea")
-
-  isPublic     Boolean @default(false)
-  allowInvites Boolean @default(true)
-
-  plan       WorkspacePlan @default(FREE)
-  maxMembers Int           @default(5)
-  maxStorage Int           @default(1024)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  ownerId String
-  owner   User   @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-
-  members     WorkspaceMember[]
-  projects    Project[]
-  tasks       Task[]
-  labels      Label[]
-  files       File[]
-  activities  Activity[]
-  invitations WorkspaceInvitation[]
-  goalCheckpoints GoalCheckpoint[]
-  systemEvents    SystemCalendarEvent[]
-  uploadRateLimit UploadRateLimit[]
-  meetings          Meeting[]
-
-  @@index([ownerId])
-  @@index([slug])
-}
-
-enum WorkspacePlan {
-  FREE
-  PRO
-  BUSINESS
-  ENTERPRISE
-}
-
 model WorkspaceMember {
-  id       String        @id @default(cuid())
-  role     WorkspaceRole @default(MEMBER)
-  joinedAt DateTime      @default(now())
-
+  id          String        @id @default(cuid())
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
   userId      String
   workspaceId String?
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   @@unique([userId, workspaceId])
   @@index([workspaceId])
   @@index([userId])
 }
 
-enum WorkspaceRole {
-  OWNER
-  ADMIN
-  MEMBER
-  GUEST
+enum WorkspaceRole { 
+  OWNER 
+  ADMIN 
+  MEMBER 
+  GUEST 
 }
 
 model WorkspaceInvitation {
-  id        String           @id @default(cuid())
-  email     String
-  role      WorkspaceRole    @default(MEMBER)
-  token     String           @unique
-  status    InvitationStatus @default(PENDING)
-  expiresAt DateTime
-  createdAt DateTime         @default(now())
-
+  id          String           @id @default(cuid())
+  email       String
+  role        WorkspaceRole    @default(MEMBER)
+  token       String           @unique
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime         @default(now())
   workspaceId String?
   invitedById String
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
+  workspace   Workspace?       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   @@index([workspaceId])
   @@index([email])
 }
 
-enum InvitationStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-  EXPIRED
+enum InvitationStatus { 
+  PENDING 
+  ACCEPTED 
+  REJECTED 
+  EXPIRED 
 }
 
-
 model Project {
-  id          String  @id @default(cuid())
+  id          String        @id @default(cuid())
   name        String
   description String?
-  color       String? @default("#667eea")
+  color       String?       @default("#667eea")
   icon        String?
-
-  status   ProjectStatus @default(ACTIVE)
-  priority Priority      @default(MEDIUM)
-
+  status      ProjectStatus @default(ACTIVE)
+  priority    Priority      @default(MEDIUM)
   startDate   DateTime?
   dueDate     DateTime?
   completedAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
   workspaceId String?
   createdById String
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy   User       @relation("ProjectCreator", fields: [createdById], references: [id])
-
-  tasks Task[]
-  files File[]
-
-  sections   ProjectSection[]
-  sprints    Sprint[]
-  members    ProjectMember[]
-  views      ProjectView[]
-  milestones ProjectMilestone[]
-  favorites  ProjectFavorite[]
-
+  workspace   Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User          @relation("ProjectCreator", fields: [createdById], references: [id])
+  tasks       Task[]
+  files       File[]
+  sections    ProjectSection[]
+  sprints     Sprint[]
+  members     ProjectMember[]
+  views       ProjectView[]
+  milestones  ProjectMilestone[]
+  favorites   ProjectFavorite[]
   @@index([workspaceId])
   @@index([createdById])
   @@index([status])
 }
 
-enum ProjectStatus {
-  PLANNING
-  ACTIVE
-  ON_HOLD
-  COMPLETED
-  ARCHIVED
+enum ProjectStatus { 
+  PLANNING 
+  ACTIVE 
+  ON_HOLD 
+  COMPLETED 
+  ARCHIVED 
 }
 
 model ProjectSection {
-  id        String @id @default(cuid())
+  id        String  @id @default(cuid())
   name      String
-  position  Int    @default(0)
+  position  Int     @default(0)
   projectId String
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   @@index([projectId])
 }
 
@@ -285,17 +555,15 @@ model ProjectMember {
   userId    String
   role      ProjectRole @default(COLLABORATOR)
   joinedAt  DateTime    @default(now())
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   @@unique([projectId, userId])
 }
 
-enum ProjectRole {
-  MANAGER
-  COLLABORATOR
-  VIEWER
+enum ProjectRole { 
+  MANAGER 
+  COLLABORATOR 
+  VIEWER 
 }
 
 model Sprint {
@@ -305,9 +573,7 @@ model Sprint {
   startDate DateTime
   endDate   DateTime
   projectId String
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   @@index([projectId])
 }
 
@@ -317,9 +583,8 @@ model ProjectMilestone {
   description String?
   dueDate     DateTime?
   completed   Boolean   @default(false)
-
-  projectId String
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model ProjectView {
@@ -329,15 +594,14 @@ model ProjectView {
   type      ProjectViewType @default(KANBAN)
   filters   Json?
   sort      Json?
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
-enum ProjectViewType {
-  KANBAN
-  LIST
-  CALENDAR
-  TIMELINE
+enum ProjectViewType { 
+  KANBAN 
+  LIST 
+  CALENDAR 
+  TIMELINE 
 }
 
 model ProjectFavorite {
@@ -345,13 +609,10 @@ model ProjectFavorite {
   projectId String
   userId    String
   createdAt DateTime @default(now())
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([projectId, userId])
 }
-
 
 model Task {
   id              String      @id @default(cuid())
@@ -362,46 +623,36 @@ model Task {
   energyType      TaskEnergy?
   intent          TaskIntent? @default(EXECUTION)
   distractionCost Int?
-
-  status   TaskStatus @default(TODO)
-  priority Priority   @default(MEDIUM)
-
-  startDate   DateTime?
-  dueDate     DateTime?
-  completedAt DateTime?
-
-  estimatedHours Int?
-  actualHours    Float?
-
-  position Int @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  projectId   String?
-  createdById String
-  parentId    String?
-  workspaceId String?
-
-  project   Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy User       @relation("TaskCreator", fields: [createdById], references: [id])
-  parent    Task?      @relation("Subtasks", fields: [parentId], references: [id])
-  subtasks  Task[]     @relation("Subtasks")
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-
-  assignees    TaskAssignee[]
-  labels       TaskLabel[]
-  comments     Comment[]
-  files        File[]
-  timeEntries  TimeEntry[]
-  activities   Activity[]
-  dependencies TaskDependency[] @relation("TaskDependsOn")
-  blockedBy    TaskDependency[] @relation("TaskBlockedBy")
-  dailyTasks   DailyTask[]
-  recurrence   TaskRecurrence?
-  focusSessions FocusSession[]
-
-
+  status          TaskStatus  @default(TODO)
+  priority        Priority    @default(MEDIUM)
+  startDate       DateTime?
+  dueDate         DateTime?
+  completedAt     DateTime?
+  estimatedHours  Int?
+  actualHours     Float?
+  position        Int         @default(0)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  projectId       String?
+  createdById     String
+  parentId        String?
+  workspaceId     String?
+  project         Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy       User        @relation("TaskCreator", fields: [createdById], references: [id])
+  parent          Task?       @relation("Subtasks", fields: [parentId], references: [id])
+  subtasks        Task[]      @relation("Subtasks")
+  workspace       Workspace?  @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  assignees       TaskAssignee[]
+  labels          TaskLabel[]
+  comments        Comment[]
+  files           File[]
+  timeEntries     TimeEntry[]
+  activities      Activity[]
+  dependencies    TaskDependency[] @relation("TaskDependsOn")
+  blockedBy       TaskDependency[] @relation("TaskBlockedBy")
+  dailyTasks      DailyTask[]
+  recurrence      TaskRecurrence?
+  focusSessions   FocusSession[]
   @@index([projectId])
   @@index([createdById])
   @@index([status])
@@ -413,139 +664,123 @@ model Task {
   @@index([createdAt])
 }
 
-enum TaskStatus {
-  TODO
-  IN_PROGRESS
-  IN_REVIEW
-  BLOCKED
-  COMPLETED
-  CANCELLED
+enum TaskStatus  { 
+  TODO 
+  IN_PROGRESS 
+  IN_REVIEW 
+  BLOCKED 
+  COMPLETED 
+  CANCELLED 
 }
 
-enum Priority {
-  URGENT
-  HIGH
-  MEDIUM
-  LOW
+enum Priority { 
+  URGENT 
+  HIGH 
+  MEDIUM 
+  LOW 
+}
+
+enum TaskEnergy { 
+  LOW 
+  MEDIUM 
+  HIGH 
+}
+
+enum TaskEffort { 
+  QUICK 
+  MEDIUM 
+  DEEP 
+}
+
+enum TaskIntent { 
+  EXECUTION 
+  PLANNING 
+  REVIEW 
+  LEARNING 
+  COMMUNICATION 
 }
 
 model TaskAssignee {
   id         String   @id @default(cuid())
   assignedAt DateTime @default(now())
-
-  taskId String
-  userId String
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  taskId     String
+  userId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([taskId, userId])
   @@index([taskId])
   @@index([userId])
 }
 
-enum TaskEnergy {
-  LOW
-  MEDIUM
-  HIGH
-}
-
-enum TaskEffort {
-  QUICK
-  MEDIUM
-  DEEP
-}
-
-enum TaskIntent {
-  EXECUTION
-  PLANNING
-  REVIEW
-  LEARNING
-  COMMUNICATION
-}
-
 model TaskDependency {
-  id          String @id @default(cuid())
+  id          String         @id @default(cuid())
   taskId      String
   dependsOnId String
-
-  type DependencyType @default(BLOCKING)
-
-  task      Task @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
-  dependsOn Task @relation("TaskBlockedBy", fields: [dependsOnId], references: [id], onDelete: Cascade)
-
+  type        DependencyType @default(BLOCKING)
+  task        Task           @relation("TaskDependsOn", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn   Task           @relation("TaskBlockedBy", fields: [dependsOnId], references: [id], onDelete: Cascade)
   @@unique([taskId, dependsOnId])
 }
 
-enum DependencyType {
-  BLOCKING
-  RELATED
+enum DependencyType { 
+  BLOCKING 
+  RELATED 
 }
 
 model TaskRecurrence {
-  id     String @id @default(cuid())
-  taskId String @unique
-
+  id       String            @id @default(cuid())
+  taskId   String            @unique
   pattern  RecurrencePattern
   interval Int               @default(1)
   days     Json?
   endsAt   DateTime?
+  task     Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
 
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+enum RecurrencePattern { 
+  DAILY 
+  WEEKLY 
+  MONTHLY 
+  CUSTOM 
 }
 
 model DailyTask {
-  id        String         @id @default(cuid())
-  userId    String
-  taskId    String
-  type      DailyTaskType
-  date      DateTime
-  addedAt   DateTime       @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
+  id      String        @id @default(cuid())
+  userId  String
+  taskId  String
+  type    DailyTaskType
+  date    DateTime
+  addedAt DateTime      @default(now())
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task    Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
   @@unique([userId, taskId, date])
   @@index([userId, date])
   @@index([taskId])
   @@index([date])
 }
 
-enum DailyTaskType {
-  PRIMARY
-  SECONDARY
-}
-
-enum RecurrencePattern {
-  DAILY
-  WEEKLY
-  MONTHLY
-  CUSTOM
+enum DailyTaskType { 
+  PRIMARY 
+  SECONDARY 
 }
 
 model Meeting {
-  id          String        @id @default(cuid())
+  id          String            @id @default(cuid())
   title       String
-  description String?       @db.Text
+  description String?           @db.Text
   link        String?
   location    String?
-
   visibility  MeetingVisibility @default(PUBLIC)
   status      MeetingStatus     @default(SCHEDULED)
-
   startTime   DateTime
   endTime     DateTime
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
   workspaceId String
   createdById String
-
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy   User      @relation("MeetingCreator", fields: [createdById], references: [id])
-
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User              @relation("MeetingCreator", fields: [createdById], references: [id])
   attendees   MeetingAttendee[]
-
   @@index([workspaceId])
   @@index([createdById])
   @@index([startTime])
@@ -558,238 +793,192 @@ model MeetingAttendee {
   meetingId String
   userId    String
   joinedAt  DateTime @default(now())
-
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([meetingId, userId])
   @@index([meetingId])
   @@index([userId])
 }
 
-enum MeetingVisibility {
-  PUBLIC
-  PRIVATE
+enum MeetingVisibility { 
+  PUBLIC 
+  PRIVATE 
 }
 
-enum MeetingStatus {
-  SCHEDULED
-  ONGOING
-  COMPLETED
-  CANCELLED
+enum MeetingStatus { 
+  SCHEDULED 
+  ONGOING 
+  COMPLETED 
+  CANCELLED 
 }
 
 model UserCapacity {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-
-  weeklyHours        Int   @default(40)
-  dailyCapacityHours Int   @default(8)
-  deepWorkHours      Int   @default(4)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  weeklyHours        Int      @default(40)
+  dailyCapacityHours Int      @default(8)
+  deepWorkHours      Int      @default(4)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model UserWorkSchedule {
-  id     String @id @default(cuid())
-  userId String @unique
-
-  workDays Json
-
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  workDays      Json
   workStartHour Int     @default(9)
   workEndHour   Int     @default(17)
   timezone      String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model CalendarDayAggregate {
-  id     String   @id @default(cuid())
-  userId String
-  date   DateTime
-
-  totalTasks     Int @default(0)
-  dueTasks       Int @default(0)
-  criticalTasks  Int @default(0)
-  milestoneCount Int @default(0)
-
-  plannedHours Float @default(0)
-  actualHours  Float @default(0)
-  focusMinutes Int   @default(0)
-
-  workloadScore Float   @default(0)
-  overCapacity  Boolean @default(false)
-
-  hasPrimaryFocus Boolean @default(false)
-  isReviewDay     Boolean @default(false)
-
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  id              String   @id @default(cuid())
+  userId          String
+  date            DateTime
+  totalTasks      Int      @default(0)
+  dueTasks        Int      @default(0)
+  criticalTasks   Int      @default(0)
+  milestoneCount  Int      @default(0)
+  plannedHours    Float    @default(0)
+  actualHours     Float    @default(0)
+  focusMinutes    Int      @default(0)
+  workloadScore   Float    @default(0)
+  overCapacity    Boolean  @default(false)
+  hasPrimaryFocus Boolean  @default(false)
+  isReviewDay     Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([userId, date])
   @@index([userId, date])
 }
 
 model GoalCheckpoint {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   userId      String
   workspaceId String?
-
-  title      String
-  type       GoalType
-  targetDate DateTime
-  completed  Boolean  @default(false)
-
-  createdAt DateTime @default(now())
-
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
+  title       String
+  type        GoalType
+  targetDate  DateTime
+  completed   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   @@index([userId, targetDate])
 }
 
-enum GoalType {
-  WEEKLY
-  MONTHLY
-  QUARTERLY
-  KPI
+enum GoalType { 
+  WEEKLY 
+  MONTHLY 
+  QUARTERLY 
+  KPI 
 }
 
 model SystemCalendarEvent {
-  id String @id @default(cuid())
-
+  id          String          @id @default(cuid())
   userId      String?
   workspaceId String?
-
-  title     String
-  type      SystemEventType
-  date      DateTime
-  recurring Boolean @default(false)
-
-  createdAt DateTime @default(now())
-
-  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
+  title       String
+  type        SystemEventType
+  date        DateTime
+  recurring   Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  user        User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   @@index([date])
   @@index([userId])
   @@index([workspaceId])
 }
 
-enum SystemEventType {
-  WEEKLY_RESET
-  MONTHLY_REVIEW
-  SPRINT_END
-  BILLING
-  WORKSPACE_REVIEW
+enum SystemEventType { 
+  WEEKLY_RESET 
+  MONTHLY_REVIEW 
+  SPRINT_END 
+  BILLING 
+  WORKSPACE_REVIEW 
 }
 
 model BurnoutSignal {
-  id     String @id @default(cuid())
-  userId String
-
-  weekStart DateTime
-
+  id                   String      @id @default(cuid())
+  userId               String
+  weekStart            DateTime
   consecutiveHeavyDays Int
   avgDailyLoad         Float
   riskLevel            BurnoutRisk
-
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  createdAt            DateTime    @default(now())
+  user                 User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([userId, weekStart])
 }
 
-enum BurnoutRisk {
-  LOW
-  MODERATE
-  HIGH
-  CRITICAL
+enum BurnoutRisk { 
+  LOW 
+  MODERATE 
+  HIGH 
+  CRITICAL 
 }
 
-
 model Label {
-  id          String  @id @default(cuid())
+  id          String     @id @default(cuid())
   name        String
-  color       String  @default("#667eea")
+  color       String     @default("#667eea")
   description String?
-  createdAt   DateTime @default(now())
-
+  createdAt   DateTime   @default(now())
   workspaceId String?
   createdById String
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy   User       @relation(fields: [createdById], references: [id])
-
-  tasks TaskLabel[]
-
+  tasks       TaskLabel[]
   @@unique([workspaceId, name])
   @@index([workspaceId])
 }
 
 model TaskLabel {
-  id String @id @default(cuid())
-
+  id      String @id @default(cuid())
   taskId  String
   labelId String
   task    Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
   label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
-
   @@unique([taskId, labelId])
   @@index([taskId])
   @@index([labelId])
 }
 
-
 model Comment {
-  id      String  @id @default(cuid())
-  content String  @db.Text
-  edited  Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  taskId   String
-  userId   String
-  parentId String?
-
-  task    Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
-  replies Comment[] @relation("CommentReplies")
-
+  id        String    @id @default(cuid())
+  content   String    @db.Text
+  edited    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  taskId    String
+  userId    String
+  parentId  String?
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   Comment[] @relation("CommentReplies")
   @@index([taskId])
   @@index([userId])
 }
 
-
 model File {
-  id           String  @id @default(cuid())
+  id           String     @id @default(cuid())
   name         String
   originalName String
   size         Int
   mimeType     String
   url          String
   thumbnail    String?
-
-  folder String? @default("/")
-
-  uploadedAt DateTime @default(now())
-
+  folder       String?    @default("/")
+  uploadedAt   DateTime   @default(now())
   workspaceId  String?
   uploadedById String
   projectId    String?
   taskId       String?
-
-  workspace  Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  uploadedBy User       @relation(fields: [uploadedById], references: [id])
-  project    Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  task       Task?      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
+  workspace    Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploadedBy   User       @relation(fields: [uploadedById], references: [id])
+  project      Project?   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task         Task?      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   @@index([workspaceId])
   @@index([uploadedById])
   @@index([projectId])
@@ -799,84 +988,69 @@ model File {
 
 model UploadRateLimit {
   id          String    @id @default(cuid())
-  userId      String    
+  userId      String
   workspaceId String
   uploadedAt  DateTime  @default(now())
-
-
   expiresAt   DateTime
-
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
   @@index([userId, workspaceId, uploadedAt])
   @@index([expiresAt])
 }
-
 
 model FocusSession {
   id        String    @id @default(cuid())
   duration  Int
   type      FocusType @default(POMODORO)
   completed Boolean   @default(false)
-
   startedAt DateTime  @default(now())
   endedAt   DateTime?
-
-  userId String
-  taskId String?
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
+  userId    String
+  taskId    String?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   @@index([userId])
   @@index([startedAt])
   @@index([taskId])
 }
 
-enum FocusType {
-  POMODORO
-  SHORT_BREAK
-  LONG_BREAK
-  DEEP_WORK
-  CUSTOM
+enum FocusType { 
+  POMODORO 
+  SHORT_BREAK 
+  LONG_BREAK 
+  DEEP_WORK 
+  CUSTOM 
 }
 
 model TimeEntry {
-  id          String  @id @default(cuid())
+  id          String    @id @default(cuid())
   description String?
   duration    Int
-  billable    Boolean @default(false)
-
-  startedAt DateTime
-  endedAt   DateTime?
-
-  userId String
-  taskId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
+  billable    Boolean   @default(false)
+  startedAt   DateTime
+  endedAt     DateTime?
+  userId      String
+  taskId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   @@index([userId])
   @@index([taskId])
   @@index([startedAt])
 }
 
-
 model Activity {
-  id         String       @id @default(cuid())
-  action     ActivityType
-  entityType EntityType
-  entityId   String
-  metadata   Json?
-
-  createdAt DateTime @default(now())
-
+  id          String       @id @default(cuid())
+  action      ActivityType
+  entityType  EntityType
+  entityId    String
+  metadata    Json?
+  createdAt   DateTime     @default(now())
   userId      String
   workspaceId String
   taskId      String?
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  task        Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task        Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
   @@index([workspaceId])
   @@index([userId])
   @@index([taskId])
@@ -884,28 +1058,27 @@ model Activity {
 }
 
 enum ActivityType {
-  CREATED
-  UPDATED
-  DELETED
-  COMPLETED
-  ASSIGNED
-  UNASSIGNED
-  COMMENTED
-  UPLOADED
-  MOVED
-  STATUS_CHANGED
+  CREATED 
+  UPDATED 
+  DELETED 
+  COMPLETED 
+  ASSIGNED 
+  UNASSIGNED 
+  COMMENTED 
+  UPLOADED 
+  MOVED 
+  STATUS_CHANGED 
   PRIORITY_CHANGED
 }
 
-enum EntityType {
-  TASK
-  PROJECT
-  COMMENT
-  FILE
-  WORKSPACE
-  MEMBER
+enum EntityType { 
+  TASK 
+  PROJECT 
+  COMMENT 
+  FILE 
+  WORKSPACE 
+  MEMBER 
 }
-
 
 model Notification {
   id        String           @id @default(cuid())
@@ -914,55 +1087,48 @@ model Notification {
   message   String
   read      Boolean          @default(false)
   actionUrl String?
-
-  createdAt DateTime  @default(now())
+  createdAt DateTime         @default(now())
   readAt    DateTime?
-
-  userId   String
-  senderId String?
-  user     User    @relation("NotificationReceiver", fields: [userId], references: [id], onDelete: Cascade)
-  sender   User?   @relation("NotificationSender", fields: [senderId], references: [id])
-
+  userId    String
+  senderId  String?
+  user      User             @relation("NotificationReceiver", fields: [userId], references: [id], onDelete: Cascade)
+  sender    User?            @relation("NotificationSender", fields: [senderId], references: [id])
   @@index([userId])
   @@index([read])
   @@index([createdAt])
 }
 
 enum NotificationType {
-  TASK_ASSIGNED
-  TASK_COMPLETED
-  MEMBER_JOINED
-  MEMBER_REMOVED
-  ROLE_UPDATED
+  TASK_ASSIGNED 
+  TASK_COMPLETED 
+  MEMBER_JOINED 
+  MEMBER_REMOVED 
+  ROLE_UPDATED 
   TASK_COMMENTED
-  TASK_DUE_SOON
-  TASK_OVERDUE
-  MENTION
-  WORKSPACE_INVITE
-  PROJECT_UPDATE
+  TASK_DUE_SOON 
+  TASK_OVERDUE 
+  MENTION 
+  WORKSPACE_INVITE 
+  PROJECT_UPDATE 
   FILE_SHARED
-  DEADLINE_REMINDER
-  MEETING_CREATED
-  MEETING_UPDATED
-  MEETING_CANCELLED
+  DEADLINE_REMINDER 
+  MEETING_CREATED 
+  MEETING_UPDATED 
+  MEETING_CANCELLED 
   MEETING_REMINDER
 }
 
-
 model Integration {
-  id           String  @id @default(cuid())
+  id           String   @id @default(cuid())
   name         String
   provider     String
-  accessToken  String? @db.Text
-  refreshToken String? @db.Text
+  accessToken  String?  @db.Text
+  refreshToken String?  @db.Text
   config       Json?
-  active       Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  workspaceId String?
-
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  workspaceId  String?
   @@index([workspaceId])
   @@index([provider])
 }

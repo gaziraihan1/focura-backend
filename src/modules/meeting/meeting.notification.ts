@@ -12,12 +12,23 @@ function formatMeetingTime(date: Date): string {
   });
 }
 
+// Add this helper at the top
+async function getWorkspaceSlug(workspaceId: string): Promise<string> {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { slug: true },
+  });
+  return workspace?.slug ?? workspaceId; // fallback to id if not found
+}
+
 export async function notifyMeetingCreatedPrivate(params: {
   meeting: MeetingPayload;
+  workspaceId: string;  
   senderId: string;
   senderName: string;
 }) {
-  const { meeting, senderId, senderName } = params;
+  const { meeting, workspaceId, senderId, senderName } = params;
+  const slug = await getWorkspaceSlug(workspaceId);
   const attendeeIds = meeting.attendees
     .map((a) => a.userId)
     .filter((id) => id !== senderId);
@@ -29,19 +40,19 @@ export async function notifyMeetingCreatedPrivate(params: {
     select: { id: true, notifications: true },
   });
 
-  const eligible = users.filter((u) => u.notifications);
-
   await Promise.allSettled(
-    eligible.map((u) =>
-      notifyUser({
-        userId: u.id,
-        senderId,
-        type: "MEETING_CREATED",
-        title: "You have been invited to a meeting",
-        message: `${senderName} invited you to "${meeting.title}" on ${formatMeetingTime(new Date(meeting.startTime))}`,
-        actionUrl: `/dashboard/meetings/${meeting.id}`,
-      }),
-    ),
+    users
+      .filter((u) => u.notifications)
+      .map((u) =>
+        notifyUser({
+          userId: u.id,
+          senderId,
+          type: "MEETING_CREATED",
+          title: "You have been invited to a meeting",
+          message: `${senderName} invited you to "${meeting.title}" on ${formatMeetingTime(new Date(meeting.startTime))}`,
+          actionUrl: `/dashboard/workspaces/${slug}/meetings/${meeting.id}`,
+        }),
+      ),
   );
 }
 
@@ -52,6 +63,7 @@ export async function notifyMeetingCreatedPublic(params: {
   senderName: string;
 }) {
   const { meeting, workspaceId, senderId, senderName } = params;
+  const slug = await getWorkspaceSlug(workspaceId);
 
   await notifyWorkspaceMembers({
     workspaceId,
@@ -59,7 +71,7 @@ export async function notifyMeetingCreatedPublic(params: {
     type: "MEETING_CREATED",
     title: "New meeting scheduled",
     message: `${senderName} scheduled "${meeting.title}" on ${formatMeetingTime(new Date(meeting.startTime))}`,
-    actionUrl: `/dashboard/meetings/${meeting.id}`,
+    actionUrl: `/dashboard/workspaces/${slug}/meetings/${meeting.id}`,
     excludeUserId: senderId,
   });
 }
@@ -72,6 +84,7 @@ export async function notifyMeetingUpdated(params: {
   isAdmin: boolean;
 }) {
   const { meeting, workspaceId, senderId, senderName, isAdmin } = params;
+  const slug = await getWorkspaceSlug(workspaceId);
 
   if (meeting.visibility === "PUBLIC" && isAdmin) {
     await notifyWorkspaceMembers({
@@ -80,7 +93,7 @@ export async function notifyMeetingUpdated(params: {
       type: "MEETING_UPDATED",
       title: "Meeting updated",
       message: `${senderName} updated "${meeting.title}"`,
-      actionUrl: `/dashboard/meetings/${meeting.id}`,
+      actionUrl: `/dashboard/workspaces/${slug}/meetings/${meeting.id}`,
       excludeUserId: senderId,
     });
   } else {
@@ -105,7 +118,7 @@ export async function notifyMeetingUpdated(params: {
             type: "MEETING_UPDATED",
             title: "Meeting updated",
             message: `${senderName} updated "${meeting.title}"`,
-            actionUrl: `/dashboard/meetings/${meeting.id}`,
+            actionUrl: `/dashboard/workspaces/${slug}/meetings/${meeting.id}`,
           }),
         ),
     );
@@ -119,6 +132,7 @@ export async function notifyMeetingCancelled(params: {
   senderName: string;
 }) {
   const { meeting, workspaceId, senderId, senderName } = params;
+  const slug = await getWorkspaceSlug(workspaceId);
 
   if (meeting.visibility === "PUBLIC") {
     await notifyWorkspaceMembers({
@@ -127,7 +141,7 @@ export async function notifyMeetingCancelled(params: {
       type: "MEETING_CANCELLED",
       title: "Meeting cancelled",
       message: `${senderName} cancelled "${meeting.title}"`,
-      actionUrl: `/dashboard/meetings`,
+      actionUrl: `/dashboard/workspaces/${slug}/meetings`,
       excludeUserId: senderId,
     });
   } else {
@@ -152,7 +166,7 @@ export async function notifyMeetingCancelled(params: {
             type: "MEETING_CANCELLED",
             title: "Meeting cancelled",
             message: `${senderName} cancelled "${meeting.title}"`,
-            actionUrl: `/dashboard/meetings`,
+            actionUrl: `/dashboard/workspaces/${slug}/meetings`,
           }),
         ),
     );

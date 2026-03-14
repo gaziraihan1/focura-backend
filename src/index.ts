@@ -21,6 +21,8 @@ import {fileManagementRouter} from '../src/modules/file/index.js';
 import logoutRoutes from './routes/auth.routes.js';
 import {workspaceUsageRouter} from '../src/modules/workspaceUsage/index.js';
 import { meetingRoutes } from './modules/meeting/index.js';
+import webhookRouter from './payment/webhook.router.js';
+import { billingRouter } from '../src/modules/billing/index.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -57,6 +59,8 @@ app.use(cors({
     'x-show-success-toast'
   ],
 }));
+
+app.use(webhookRouter)
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -134,6 +138,7 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
 
 app.use('/api/notifications', notificationRouter);
 app.use('/api/workspaces', authenticate, workspaceRouter);
+app.use('/api/workspaces/:workspaceId/billing', authenticate, billingRouter);
 app.use('/api/projects', authenticate, projectRouter);
 app.use('/api/tasks', authenticate, taskRouter);
 app.use('/api/daily-tasks', authenticate, dailyTaskRouter);

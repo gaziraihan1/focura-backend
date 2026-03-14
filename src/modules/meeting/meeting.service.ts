@@ -84,6 +84,7 @@ export const MeetingService = {
       notifyMeetingCreatedPrivate({
         meeting,
         senderId: ctx.userId,
+        workspaceId: ctx.workspaceId,
         senderName,
       }).catch(console.error);
     } else {

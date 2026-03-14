@@ -1,4 +1,3 @@
-
 import { Router } from 'express';
 import {
   getUserProjects,
@@ -11,13 +10,14 @@ import {
   updateProjectMemberRole,
   removeProjectMember,
 } from './project.controller.js';
+import { requireProjectSlot } from '../billing/index.js';
 
 const router = Router();
 
 router.get('/user/all',                 getUserProjects);
 router.get('/workspace/:workspaceId',   getProjectsByWorkspace);
 
-router.post('/',                        createProject);
+router.post('/',                        requireProjectSlot, createProject);
 router.get('/:projectId',               getProjectDetails);
 router.patch('/:projectId',             updateProject);
 router.delete('/:projectId',            deleteProject);

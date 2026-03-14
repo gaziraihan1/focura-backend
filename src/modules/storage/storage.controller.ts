@@ -1,9 +1,9 @@
-
 import type { Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../../middleware/auth.js';
 import { StorageQuery }    from './storage.query.js';
 import { StorageMutation } from './storage.mutation.js';
+import { StorageAccess }   from './storage.access.js';
 import { StorageError, UnauthorizedError, NotFoundError } from './storage.types.js';
 import {
   largestFilesQuerySchema,
@@ -28,22 +28,18 @@ function handleError(error: unknown, res: Response, label: string): void {
     });
     return;
   }
-
   if (error instanceof UnauthorizedError) {
     res.status(403).json({ success: false, message: (error as Error).message });
     return;
   }
-
   if (error instanceof NotFoundError) {
     res.status(404).json({ success: false, message: (error as Error).message });
     return;
   }
-
   if (error instanceof StorageError) {
     res.status(400).json({ success: false, message: (error as Error).message });
     return;
   }
-
   console.error(`${label} error:`, error);
   res.status(500).json({ success: false, message: `Failed to ${label}` });
 }
@@ -67,33 +63,37 @@ export const getWorkspaceOverview = async (req: AuthRequest, res: Response) => {
 
     const { workspaceId } = req.params;
 
-    const [
-      isAdmin,
-      storageInfo,
-      breakdown,
-      largestFiles,
-      trend,
-      fileTypes,
-      myContribution,
-    ] = await Promise.all([
-      StorageQuery['getWorkspaceStorageInfo'](workspaceId, userId).then(() =>
-        import('./storage.access.js').then((m) => m.StorageAccess.isAdmin(userId, workspaceId)),
-      ),
-      StorageQuery.getWorkspaceStorageInfo(workspaceId, userId),
-      StorageQuery.getWorkspaceStorageBreakdown(workspaceId, userId),
-      StorageQuery.getLargestFiles(workspaceId, userId, 10),
-      StorageQuery.getStorageTrend(workspaceId, userId, 30),
-      StorageQuery.getFileTypeBreakdown(workspaceId, userId),
-      StorageQuery.getMyContribution(workspaceId, userId),
-    ]);
+    // Run access check + isAdmin in one query, then fetch everything else in parallel.
+    // Previously this called getWorkspaceStorageInfo twice (once buried in the isAdmin
+    // check, once for real). Now isAdmin is resolved directly from StorageAccess.
+    const [isAdmin, storageInfo, breakdown, largestFiles, trend, fileTypes, myContribution] =
+      await Promise.all([
+        StorageAccess.isAdmin(userId, workspaceId),
+        StorageQuery.getWorkspaceStorageInfo(workspaceId, userId),
+        StorageQuery.getWorkspaceStorageBreakdown(workspaceId, userId),
+        StorageQuery.getLargestFiles(workspaceId, userId, 10),
+        StorageQuery.getStorageTrend(workspaceId, userId, 30),
+        StorageQuery.getFileTypeBreakdown(workspaceId, userId),
+        StorageQuery.getMyContribution(workspaceId, userId),
+      ]);
 
+    // Admin-only: per-user breakdown (extra query only when needed)
     const userContributions = isAdmin
       ? await StorageQuery.getUserContributions(workspaceId, userId)
       : null;
 
     res.json({
       success: true,
-      data: { storageInfo, breakdown, largestFiles, trend, fileTypes, myContribution, userContributions, isAdmin },
+      data: {
+        storageInfo,
+        breakdown,
+        largestFiles,
+        trend,
+        fileTypes,
+        myContribution,
+        userContributions,
+        isAdmin,
+      },
     });
   } catch (error) {
     handleError(error, res, 'fetch workspace storage overview');
@@ -142,7 +142,6 @@ export const getLargestFiles = async (req: AuthRequest, res: Response) => {
     if (!userId) return;
 
     const { limit } = largestFilesQuerySchema.parse(req.query);
-
     const files = await StorageQuery.getLargestFiles(req.params.workspaceId, userId, limit);
     res.json({ success: true, data: files });
   } catch (error) {
@@ -156,7 +155,6 @@ export const bulkDelete = async (req: AuthRequest, res: Response) => {
     if (!userId) return;
 
     const { fileIds } = bulkDeleteSchema.parse(req.body);
-
     const result = await StorageMutation.bulkDeleteFiles(fileIds, req.params.workspaceId, userId);
 
     if (!result.success) {
@@ -189,11 +187,7 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    res.json({
-      success: true,
-      message: result.message,
-      data: { freedMB: result.freedMB },
-    });
+    res.json({ success: true, message: result.message, data: { freedMB: result.freedMB } });
   } catch (error) {
     handleError(error, res, 'delete file');
   }
@@ -205,7 +199,6 @@ export const checkUpload = async (req: AuthRequest, res: Response) => {
     if (!userId) return;
 
     const { fileSize } = checkUploadSchema.parse(req.body);
-
     const result = await StorageMutation.canUploadFile(req.params.workspaceId, userId, fileSize);
 
     res.json({

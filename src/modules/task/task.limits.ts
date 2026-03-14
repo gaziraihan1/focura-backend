@@ -10,25 +10,31 @@ import {
 
 
 async function resolveUserPlan(userId: string): Promise<UserPlan> {
-  const user = await prisma.user.findUnique({
-    where:  { id: userId },
-    select: { plan: true } as any,
+  // User's effective plan = highest plan across all workspaces they own
+  const workspaces = await prisma.workspace.findMany({
+    where:  { ownerId: userId },
+    select: { plan: true },
   });
-  return (user as any)?.plan === "PRO" ? "PRO" : "FREE";
+
+  const RANK: Record<string, number> = { FREE: 0, PRO: 1, BUSINESS: 2, ENTERPRISE: 3 };
+  let highest = 'FREE';
+  for (const ws of workspaces) {
+    if ((RANK[ws.plan] ?? 0) > (RANK[highest] ?? 0)) highest = ws.plan;
+  }
+  return highest === 'PRO' ? 'PRO' : 'FREE';
 }
 
 async function resolveWorkspacePlan(workspaceId: string): Promise<WorkspacePlan> {
   const ws = await prisma.workspace.findUnique({
     where:  { id: workspaceId },
-    select: { plan: true } as any,
+    select: { plan: true },
   });
-  const p = (ws as any)?.plan as string | undefined;
-  if (p === "ENTERPRISE") return "ENTERPRISE";
-  if (p === "BUSINESS")   return "BUSINESS";
-  if (p === "PRO")        return "PRO";
-  return "FREE";
+  const p = ws?.plan as string | undefined;
+  if (p === 'ENTERPRISE') return 'ENTERPRISE';
+  if (p === 'BUSINESS')   return 'BUSINESS';
+  if (p === 'PRO')        return 'PRO';
+  return 'FREE';
 }
-
 
 export interface PersonalQuotaInfo {
   plan:           UserPlan;

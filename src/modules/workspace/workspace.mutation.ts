@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { sendInvitationEmail } from "../../utils/email.js";
 import { WorkspaceAccess } from "./workspace.access.js";
 import { workspaceListInclude } from "./workspace.selects.js";
-import { generateUniqueSlug, WORKSPACE_LIMITS } from "./workspace.utils.js";
+import { generateUniqueSlug } from "./workspace.utils.js";
 import type {
   CreateWorkspaceInput,
   UpdateWorkspaceInput,
@@ -33,18 +33,6 @@ export const WorkspaceMutation = {
     input: CreateWorkspaceInput,
     onCreated?: OnWorkspaceCreated,
   ) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { plan: true },
-    });
-    if (!user) throw new Error("User not found");
-    const userPlan = user.plan || "FREE";
-    const maxAllowed = WORKSPACE_LIMITS[userPlan];
-    const count = await prisma.workspace.count({ where: { ownerId: userId } });
-    if (count >= maxAllowed)
-      throw new Error(
-        `Workspace limit reached for your ${userPlan} plan. Allowed: ${maxAllowed}`,
-      );
 
     const slug = await generateUniqueSlug(input.name);
     const workspace = await prisma.workspace.create({

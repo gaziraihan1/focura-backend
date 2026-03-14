@@ -1,11 +1,10 @@
-
 import { prisma } from '../../index.js';
 
 export const AttachmentAccess = {
   async assertCanAttach(taskId: string, userId: string) {
     const task = await prisma.task.findFirst({
       where: {
-        id: taskId,
+        id:        taskId,
         projectId: { not: null },
         OR: [
           { createdById: userId },
@@ -26,10 +25,10 @@ export const AttachmentAccess = {
             workspaceId: true,
             workspace: {
               select: {
-                id: true,
+                id:   true,
                 plan: true,
                 members: {
-                  where: { userId },
+                  where:  { userId },
                   select: { role: true },
                 },
               },
@@ -48,24 +47,25 @@ export const AttachmentAccess = {
     }
 
     return {
-      workspaceId: task.project.workspaceId,
-      workspacePlan: task.project.workspace?.plan ?? "FREE",
-      userRole: task.project.workspace?.members[0]?.role,
+      workspaceId:   task.project.workspaceId,
+      workspacePlan: task.project.workspace?.plan ?? 'FREE',
+      userRole:      task.project.workspace?.members[0]?.role,
     };
   },
 
   async assertCanDelete(fileId: string, userId: string) {
     const file = await prisma.file.findFirst({
-      where: { id: fileId },
+      where:  { id: fileId },
       select: {
-        id: true,
-        name: true,
+        id:           true,
+        name:         true,
+        size:         true,   // ← was missing
         uploadedById: true,
-        workspaceId: true,
+        workspaceId:  true,
         workspace: {
           select: {
             members: {
-              where: { userId },
+              where:  { userId },
               select: { role: true },
             },
           },
@@ -76,7 +76,9 @@ export const AttachmentAccess = {
     if (!file) throw new Error('File not found');
 
     const isUploader = file.uploadedById === userId;
-    const isAdmin = file.workspace?.members[0]?.role === 'OWNER' || file.workspace?.members[0]?.role === 'ADMIN';
+    const isAdmin    =
+      file.workspace?.members[0]?.role === 'OWNER' ||
+      file.workspace?.members[0]?.role === 'ADMIN';
 
     if (!isUploader && !isAdmin) {
       throw new Error('You do not have permission to delete this file');

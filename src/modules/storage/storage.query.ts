@@ -1,4 +1,3 @@
-
 import { prisma } from '../../index.js';
 import type {
   StorageInfo,
@@ -12,23 +11,41 @@ import type {
 } from './storage.types.js';
 import { StorageAccess } from './storage.access.js';
 import { toMB, getCategoryFromMimeType } from './storage.utils.js';
+import {
+  getWorkspaceStorageBytes,
+  seedWorkspaceStorageFromDb,
+} from '../attachment/attatchment.quota.service.js';
+
+// ─── Seed helper ──────────────────────────────────────────────────────────────
+
+async function ensureStorageSeeded(workspaceId: string): Promise<void> {
+  const agg = await prisma.file.aggregate({
+    where: { workspaceId },
+    _sum:  { size: true },
+  });
+  await seedWorkspaceStorageFromDb(workspaceId, agg._sum.size ?? 0);
+}
+
+// ─── Queries ──────────────────────────────────────────────────────────────────
 
 export const StorageQuery = {
   async getWorkspaceStorageInfo(workspaceId: string, userId: string): Promise<StorageInfo> {
+    // Single query — gets role + workspace data together
     const { workspace } = await StorageAccess.assertMemberWithWorkspace(userId, workspaceId);
 
-    const agg = await prisma.file.aggregate({
-      where: { workspaceId },
-      _sum:  { size: true },
-    });
-
-    const usedMB      = toMB(agg._sum.size ?? 0);
+    // Seed on cache miss then read from Redis — avoids aggregate on every request
+    await ensureStorageSeeded(workspaceId);
+    const usedBytes   = await getWorkspaceStorageBytes(workspaceId);
+    const usedMB      = toMB(usedBytes);
     const totalMB     = workspace.maxStorage;
     const remainingMB = Math.max(0, totalMB - usedMB);
     const percentage  = Math.min(100, Math.round((usedMB / totalMB) * 100));
 
     return {
-      usedMB, totalMB, remainingMB, percentage,
+      usedMB,
+      totalMB,
+      remainingMB,
+      percentage,
       plan:          workspace.plan,
       workspaceId:   workspace.id,
       workspaceName: workspace.name,
@@ -43,14 +60,14 @@ export const StorageQuery = {
       select: { size: true, taskId: true, projectId: true },
     });
 
-    let attachments   = 0;
+    let attachments    = 0;
     let workspaceFiles = 0;
-    let projectFiles  = 0;
+    let projectFiles   = 0;
 
     for (const file of files) {
       const mb = file.size / (1024 * 1024);
-      if      (file.taskId)    attachments   += mb;
-      else if (file.projectId) projectFiles  += mb;
+      if      (file.taskId)    attachments    += mb;
+      else if (file.projectId) projectFiles   += mb;
       else                     workspaceFiles += mb;
     }
 
@@ -64,7 +81,7 @@ export const StorageQuery = {
   },
 
   async getUserContributions(
-    workspaceId: string,
+    workspaceId:      string,
     requestingUserId: string,
   ): Promise<UserStorageContribution[]> {
     await StorageAccess.assertAdmin(requestingUserId, workspaceId);
@@ -72,7 +89,7 @@ export const StorageQuery = {
     const files = await prisma.file.findMany({
       where:  { workspaceId },
       select: {
-        size: true,
+        size:       true,
         uploadedBy: { select: { id: true, name: true, email: true } },
       },
     });
@@ -118,9 +135,9 @@ export const StorageQuery = {
 
     const [userAgg, totalAgg] = await Promise.all([
       prisma.file.aggregate({
-        where: { workspaceId, uploadedById: userId },
+        where:  { workspaceId, uploadedById: userId },
         _sum:   { size: true },
-        _count: { id:   true },
+        _count: { id: true },
       }),
       prisma.file.aggregate({
         where: { workspaceId },
@@ -128,8 +145,8 @@ export const StorageQuery = {
       }),
     ]);
 
-    const userBytes  = userAgg._sum.size   ?? 0;
-    const totalBytes = totalAgg._sum.size  ?? 0;
+    const userBytes  = userAgg._sum.size  ?? 0;
+    const totalBytes = totalAgg._sum.size ?? 0;
     const usageMB    = toMB(userBytes);
     const totalMB    = totalBytes / (1024 * 1024);
 
@@ -142,7 +159,7 @@ export const StorageQuery = {
 
   async getLargestFiles(
     workspaceId: string,
-    userId: string,
+    userId:      string,
     limit = 10,
   ): Promise<LargestFile[]> {
     await StorageAccess.assertMember(userId, workspaceId);
@@ -155,8 +172,8 @@ export const StorageQuery = {
         id: true, name: true, originalName: true,
         size: true, mimeType: true, url: true, uploadedAt: true,
         uploadedBy: { select: { id: true, name: true, email: true } },
-        task:        { select: { id: true, title: true } },
-        project:     { select: { id: true, name: true  } },
+        task:       { select: { id: true, title: true } },
+        project:    { select: { id: true, name: true  } },
       },
     });
 
@@ -165,7 +182,7 @@ export const StorageQuery = {
 
   async getStorageTrend(
     workspaceId: string,
-    userId: string,
+    userId:      string,
     days = 30,
   ): Promise<StorageTrend[]> {
     await StorageAccess.assertMember(userId, workspaceId);
@@ -201,9 +218,7 @@ export const StorageQuery = {
       const date = new Date();
       date.setDate(date.getDate() - (days - i - 1));
       const key = date.toISOString().split('T')[0];
-
       if (trendMap.has(key)) currentSize = trendMap.get(key)!;
-
       trend.push({ date: new Date(key), usageMB: toMB(currentSize) });
     }
 
@@ -247,19 +262,27 @@ export const StorageQuery = {
           },
         },
       }),
-
       prisma.file.groupBy({
-        by:    ['workspaceId'],
-        _sum:  { size: true },
+        by:     ['workspaceId'],
+        _sum:   { size: true },
         _count: { id: true },
       }),
     ]);
 
+    // Seed all workspace counters in parallel (NX — no-op if already seeded)
     const sizeMap = new Map(
       fileSizesByWorkspace.map((row) => [
         row.workspaceId,
         { totalBytes: row._sum.size ?? 0, fileCount: row._count.id },
       ]),
+    );
+
+    await Promise.allSettled(
+      memberships
+        .filter((m) => m.workspace !== null)
+        .map((m) =>
+          seedWorkspaceStorageFromDb(m.workspace!.id, sizeMap.get(m.workspace!.id)?.totalBytes ?? 0),
+        ),
     );
 
     return memberships

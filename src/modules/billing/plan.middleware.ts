@@ -1,0 +1,187 @@
+// backend/src/billing/middleware/plan.middleware.ts
+// All guards check the *workspace's* plan, not the user's plan.
+// workspaceId is always read from req.params.workspaceId.
+
+import { Response, NextFunction } from "express";
+import { prisma } from "../../index.js";
+import { AuthRequest } from "../../middleware/auth.js";
+import { BillingService } from "./billing.service.js";
+
+// ---------------------------------------------------------------------------
+// Generic guard factory
+// ---------------------------------------------------------------------------
+
+type LimitChecker = (
+  req: AuthRequest,
+) => Promise<{ allowed: boolean; reason?: string }>;
+
+function planGuard(checker: LimitChecker) {
+  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { allowed, reason } = await checker(req);
+      if (!allowed) {
+        return res.status(403).json({
+          error: "PLAN_LIMIT_EXCEEDED",
+          message: reason ?? "Your workspace plan does not allow this action.",
+          upgradeUrl: `/workspaces/${req.params.workspaceId}/billing/upgrade`,
+        });
+      }
+      next();
+    } catch (err) {
+      console.error("[PlanMiddleware]", err);
+      next(err);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Workspace-scoped plan guards
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// USER-LEVEL GUARD — workspace *creation* only
+//
+// This is the only guard that looks at the USER rather than a specific workspace.
+// It checks how many workspaces the user already owns against the limit
+// granted by their HIGHEST active workspace plan.
+//
+// Example:
+//   User owns Workspace A (FREE) + Workspace B (PRO)
+//   → highest plan = PRO → maxWorkspacesOwned = 10
+//   → user can create up to 10 workspaces total
+//
+// Mount this on POST /workspaces (workspace creation endpoint).
+// ---------------------------------------------------------------------------
+export const requireWorkspaceCreationSlot = planGuard(async (req) => {
+  const userId = req.user?.id;
+
+  const maxAllowed = await BillingService.getUserWorkspaceCreationLimit(
+    userId!!,
+  );
+
+  // -1 = unlimited (BUSINESS plan)
+  if (maxAllowed === -1) return { allowed: true };
+
+  const currentCount = await prisma.workspace.count({
+    where: { ownerId: userId },
+  });
+
+  if (currentCount >= maxAllowed) {
+    return {
+      allowed: false,
+      reason: `You can own up to ${maxAllowed} workspace(s) on your current plan. Upgrade any existing workspace to Pro or Business to create more.`,
+    };
+  }
+  return { allowed: true };
+});
+
+/** Block adding members beyond the workspace's plan member limit. */
+export const requireMemberSlot = planGuard(async (req) => {
+  const workspaceId = req.params.workspaceId ?? req.params.id;
+  const limits = await BillingService.getWorkspacePlanLimits(workspaceId);
+  if (limits.maxMembersPerWs === -1) return { allowed: true };
+
+  const count = await prisma.workspaceMember.count({ where: { workspaceId } });
+  if (count >= limits.maxMembersPerWs) {
+    return {
+      allowed: false,
+      reason: `This workspace's plan allows a maximum of ${limits.maxMembersPerWs} members. Upgrade this workspace to add more.`,
+    };
+  }
+  return { allowed: true };
+});
+
+/** Block file uploads that exceed the workspace plan's per-file size limit. */
+export const requireFileSizeLimit = planGuard(async (req) => {
+  const { workspaceId } = req.params;
+  const limits = await BillingService.getWorkspacePlanLimits(workspaceId);
+  const fileSizeMb = Number(req.headers["content-length"] ?? 0) / (1024 * 1024);
+
+  if (fileSizeMb > limits.maxFileSizeMb) {
+    return {
+      allowed: false,
+      reason: `This workspace's plan allows uploads up to ${limits.maxFileSizeMb} MB per file.`,
+    };
+  }
+  return { allowed: true };
+});
+
+/** Block meeting creation if workspace is over its monthly meeting limit. */
+export const requireMeetingSlot = planGuard(async (req) => {
+  const { workspaceId } = req.params;
+  const limits = await BillingService.getWorkspacePlanLimits(workspaceId);
+  if (limits.maxMeetingsPerMo === -1) return { allowed: true };
+
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const count = await prisma.meeting.count({
+    where: { workspaceId, createdAt: { gte: startOfMonth } },
+  });
+
+  if (count >= limits.maxMeetingsPerMo) {
+    return {
+      allowed: false,
+      reason: `This workspace's plan allows ${limits.maxMeetingsPerMo} meetings per month.`,
+    };
+  }
+  return { allowed: true };
+});
+
+/** Block project creation if workspace is at its project limit. */
+export const requireProjectSlot = planGuard(async (req) => {
+  // in planmiddleware.ts — requireProjectSlot
+  const workspaceId = req.params.workspaceId ?? req.body.workspaceId;
+  const limits = await BillingService.getWorkspacePlanLimits(workspaceId);
+  if (limits.maxProjects === -1) return { allowed: true };
+
+  const count = await prisma.project.count({ where: { workspaceId } });
+  if (count >= limits.maxProjects) {
+    return {
+      allowed: false,
+      reason: `This workspace's plan allows ${limits.maxProjects} projects. Upgrade this workspace to create more.`,
+    };
+  }
+  return { allowed: true };
+});
+
+/** Block access to workspace analytics on FREE plan. */
+export const requireAnalyticsAccess = planGuard(async (req) => {
+  const { workspaceId } = req.params;
+  const limits = await BillingService.getWorkspacePlanLimits(workspaceId);
+  if (!limits.analyticsAccess) {
+    return {
+      allowed: false,
+      reason: "Analytics requires a Pro or Business workspace plan.",
+    };
+  }
+  return { allowed: true };
+});
+
+/** Block API access on non-Business workspaces. */
+export const requireApiAccess = planGuard(async (req) => {
+  const { workspaceId } = req.params;
+  const limits = await BillingService.getWorkspacePlanLimits(workspaceId);
+  if (!limits.apiAccess) {
+    return {
+      allowed: false,
+      reason: "API access requires a Business workspace plan.",
+    };
+  }
+  return { allowed: true };
+});
+
+// ---------------------------------------------------------------------------
+// Usage (mount these on the relevant routes):
+//
+//   // USER-LEVEL (on workspace creation — no :workspaceId param yet):
+//   router.post('/workspaces', authMiddleware, requireWorkspaceCreationSlot, WorkspaceController.create);
+//
+//   // WORKSPACE-LEVEL (scoped to a specific workspace):
+//   router.post('/:workspaceId/members',   authMiddleware, requireMemberSlot,       MemberController.invite);
+//   router.post('/:workspaceId/meetings',  authMiddleware, requireMeetingSlot,       MeetingController.create);
+//   router.post('/:workspaceId/projects',  authMiddleware, requireProjectSlot,       ProjectController.create);
+//   router.get ('/:workspaceId/analytics', authMiddleware, requireAnalyticsAccess,   AnalyticsController.get);
+//   router.post('/:workspaceId/files',     authMiddleware, requireFileSizeLimit,     FileController.upload);
+// ---------------------------------------------------------------------------
