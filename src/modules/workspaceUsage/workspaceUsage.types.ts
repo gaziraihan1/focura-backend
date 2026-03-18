@@ -1,8 +1,3 @@
-/**
- * workspaceUsage.types.ts
- * Types for comprehensive workspace usage analytics.
- */
-
 export interface WorkspaceUsageData {
   snapshot: UsageSnapshot;
   projectActivity: ProjectActivityMetrics;

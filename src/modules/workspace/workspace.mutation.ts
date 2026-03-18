@@ -24,7 +24,7 @@ type OnInvitationAccepted = (data: {
 type OnMemberRemoved = (data: { member: any }) => Promise<void>;
 type OnRoleUpdated = (data: {
   member: any;
-  workspaceName: string ;
+  workspaceName: string;
 }) => Promise<void>;
 
 export const WorkspaceMutation = {
@@ -33,7 +33,6 @@ export const WorkspaceMutation = {
     input: CreateWorkspaceInput,
     onCreated?: OnWorkspaceCreated,
   ) {
-
     const slug = await generateUniqueSlug(input.name);
     const workspace = await prisma.workspace.create({
       data: {
@@ -214,7 +213,9 @@ export const WorkspaceMutation = {
       },
     });
     if (onUpdated)
-      onUpdated({ member, workspaceName: updater.workspace?.name ?? '' }).catch(console.error);
+      onUpdated({ member, workspaceName: updater.workspace?.name ?? "" }).catch(
+        console.error,
+      );
     return member;
   },
 

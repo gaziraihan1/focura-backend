@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { prisma } from '../../index.js';
-import { notifyUser } from '../../utils/notification.helpers.js';
+import { notifyUser } from './notification.helpers.js';
 import { NotificationMutation } from './notification.mutation.js';
 
 

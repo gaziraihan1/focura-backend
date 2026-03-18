@@ -3,7 +3,7 @@ import {
   notifyUser,
   notifyTaskAssignees,
   notifyMentions,
-} from '../../utils/notification.helpers.js';
+} from '../notification/index.js';
 import { prisma } from '../../index.js';
 
 export const TaskNotifications = {

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 
 export const userSelect = {
   id:    true,
@@ -17,9 +18,30 @@ export const commentSimpleInclude = {
   user: { select: userSelect },
 } as const;
 
+
 export const taskForActivitySelect = {
-  title: true,
-  project: {
-    select: { workspaceId: true },
+  id:          true,
+  title:       true,
+  createdById: true,
+  createdBy: {
+    select: {
+      id:            true,
+      notifications: true,
+    },
   },
-} as const;
+  project: {
+    select: {
+      workspaceId: true,
+    },
+  },
+  assignees: {
+    select: {
+      userId: true,
+      user: {
+        select: {
+          notifications: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.TaskSelect;

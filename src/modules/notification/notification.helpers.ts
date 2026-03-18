@@ -147,7 +147,21 @@ export async function notifyProjectMembers(params: {
     .map((r) => r.value);
 }
 
+// notification.helpers.ts
 export async function parseMentions(text: string, workspaceId: string): Promise<string[]> {
+  // Match both @[Name](userId) from rich editor and legacy @username
+  const richMentions = [...text.matchAll(/@\[([^\]]+)\]\(([^)]+)\)/g)].map((m) => m[2]);
+
+  if (richMentions.length > 0) {
+    // IDs are already embedded — just validate they're workspace members
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspaceId, userId: { in: richMentions } },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
+  }
+
+  // Legacy @username fallback
   const usernames = [...text.matchAll(/@(\w+)/g)].map((m) => m[1]);
   if (!usernames.length) return [];
 

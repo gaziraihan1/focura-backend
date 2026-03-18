@@ -1,4 +1,5 @@
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../index.js';
 
 export const CommentActivity = {
@@ -88,3 +89,20 @@ export const CommentActivity = {
     }
   },
 };
+
+export const taskForActivitySelect = {
+  id:          true,
+  title:       true,
+  createdById: true,          // ← needed for creator check
+  createdBy: {
+    select: {
+      id:            true,
+      notifications: true,    // ← needed for preference check
+    },
+  },
+  project: {
+    select: {
+      workspaceId: true,
+    },
+  },
+} satisfies Prisma.TaskSelect;

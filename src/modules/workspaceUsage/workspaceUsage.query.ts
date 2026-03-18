@@ -21,7 +21,6 @@ import type {
 } from "./workspaceUsage.types.js";
 
 export const WorkspaceUsageQuery = {
-
   async getWorkspaceUsage(
     workspaceId: string,
     userId: string,
@@ -90,7 +89,6 @@ export const WorkspaceUsageQuery = {
     };
   },
 
-
   async getDailyActiveUsers(
     workspaceId: string,
     days: number,
@@ -123,7 +121,6 @@ export const WorkspaceUsageQuery = {
       };
     });
   },
-
 
   async getUsageSnapshot(
     workspaceId: string,
@@ -174,7 +171,6 @@ export const WorkspaceUsageQuery = {
       engagementScore,
     };
   },
-
 
   async getUserEngagement(
     workspaceId: string,
@@ -281,7 +277,6 @@ export const WorkspaceUsageQuery = {
     };
   },
 
-
   async getFeatureUsage(workspaceId: string): Promise<FeatureUsageMetrics> {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -337,7 +332,6 @@ export const WorkspaceUsageQuery = {
     };
   },
 
-
   async getPlanLimits(
     workspaceId: string,
     workspace: any, // Pre-fetched
@@ -365,7 +359,6 @@ export const WorkspaceUsageQuery = {
       automationLimit: limits.automations,
     };
   },
-
 
   async getProjectActivity(
     workspaceId: string,
@@ -511,7 +504,6 @@ export const WorkspaceUsageQuery = {
     return { mostActive, lowActivity, tasksPerProjectTrend: [] };
   },
 
-
   async getResourceUsage(
     workspaceId: string,
     files: any[], // Pre-fetched
@@ -597,7 +589,6 @@ export const WorkspaceUsageQuery = {
       },
     };
   },
-
 
   async getWorkspaceLoad(
     workspaceId: string,
@@ -702,7 +693,6 @@ export const WorkspaceUsageQuery = {
       averageTaskCompletion: { byUser: [], byProject: [] },
     };
   },
-
 
   async getWorkspaceGrowth(
     workspaceId: string,

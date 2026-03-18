@@ -8,6 +8,9 @@ import { CommentActivity } from './comment.activity.js';
 import { prisma } from '../../index.js';
 import { taskForActivitySelect } from './comment.selects.js';
 import { createCommentSchema, updateCommentSchema } from './comment.validators.js';
+import { notifyMentions, notifyTaskAssignees, notifyUser } from '../notification/index.js';
+import { stripMentionSyntax } from './mention/mention.utils.js';
+import { NotificationMutation } from '../notification/notification.mutation.js';
 
 function handleError(res: Response, label: string, error: unknown): void {
   if (error instanceof z.ZodError) {
@@ -41,6 +44,7 @@ export const getComments = async (req: AuthRequest, res: Response) => {
   }
 };
 
+
 export const addComment = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId } = req.params;
@@ -48,21 +52,105 @@ export const addComment = async (req: AuthRequest, res: Response) => {
 
     const comment = await CommentMutation.createComment(
       { taskId, userId: req.user!.id, ...body },
-      async ({ commentId, content }) => {
+      async ({ commentId, content, parentId }) => {
         const task = await prisma.task.findUnique({
           where:  { id: taskId },
           select: taskForActivitySelect,
         });
 
-        if (task?.project?.workspaceId) {
-          void CommentActivity.logCreated({
-            commentId,
-            taskId,
-            taskTitle:      task.title,
-            userId:         req.user!.id,
-            workspaceId:    task.project.workspaceId,
-            commentPreview: content!.substring(0, 100),
+        if (!task?.project?.workspaceId) return;
+        const workspaceId = task.project.workspaceId;
+        const plainContent = stripMentionSyntax(content!);
+        const senderName   = req.user!.name ?? 'Someone';
+        const actionUrl    = `/dashboard/tasks/${taskId}`;
+
+        // ── Activity log
+        void CommentActivity.logCreated({
+          commentId,
+          taskId,
+          taskTitle:      task.title,
+          userId:         req.user!.id,
+          workspaceId,
+          commentPreview: plainContent.substring(0, 100),
+        });
+
+        // ── Notify task creator (skip if they are the commenter)
+        if (
+          task.createdById !== req.user!.id &&
+          task.createdBy?.notifications
+        ) {
+          void notifyUser({
+            userId:   task.createdById,
+            senderId: req.user!.id,
+            type:     'TASK_COMMENTED',
+            title:    'New comment on your task',
+            message:  `${senderName} commented on "${task.title}"`,
+            actionUrl,
           });
+        }
+
+        // ── Notify assignees — skip commenter AND creator (already notified above)
+        const assigneesToNotify = (task.assignees ?? []).filter(
+          (a) =>
+            a.userId !== req.user!.id &&
+            a.userId !== task.createdById &&
+            a.user?.notifications
+        );
+
+        void Promise.allSettled(
+          assigneesToNotify.map((a) =>
+            notifyUser({
+              userId:   a.userId,
+              senderId: req.user!.id,
+              type:     'TASK_COMMENTED',
+              title:    'New comment on a task',
+              message:  `${senderName} commented on "${task.title}"`,
+              actionUrl,
+            })
+          )
+        );
+
+        // ── Mention notifications
+        if (content) {
+          void notifyMentions({
+            text:       content,
+            workspaceId,
+            senderId:   req.user!.id,
+            senderName,
+            context:    `a comment on "${task.title}"`,
+            actionUrl,
+          });
+        }
+
+        // ── Reply notification — notify parent comment author
+        // Skip if they are the commenter, already notified as creator,
+        // or already notified as assignee
+        if (parentId) {
+          const parent = await prisma.comment.findUnique({
+            where:  { id: parentId },
+            select: { userId: true, user: { select: { notifications: true } } },
+          });
+
+          const alreadyNotified = new Set([
+            req.user!.id,
+            task.createdById,
+            ...assigneesToNotify.map((a) => a.userId),
+          ]);
+
+          if (
+            parent &&
+            !alreadyNotified.has(parent.userId) &&
+            parent.user.notifications
+          ) {
+            void notifyUser({
+              userId:   parent.userId,
+              senderId: req.user!.id,
+              type:     'TASK_COMMENTED',
+              title:    'New reply on your comment',
+              message:  `${senderName} replied to your comment on "${task.title}"`,
+              actionUrl,
+            });
+          }
         }
       },
     );

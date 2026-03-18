@@ -18,6 +18,7 @@ import {
   deleteAttachment,
 } from '../attachment/index.js';
 import { requireFileSizeLimit } from '../billing/index.js';
+import { subtaskRouter } from './subtask/index.js';
 
 const router = Router();
 
@@ -33,6 +34,8 @@ router.patch('/:id/status', updateTaskStatus);
 router.delete('/:id',       deleteTask);
 
 router.use('/:taskId/comments', commentRouter);
+
+router.use('/:taskId/subtasks', subtaskRouter)
 
 router.get('/:taskId/attachments',                                              getTaskAttachments);
 router.post('/:taskId/attachments', upload.single('file'), requireFileSizeLimit, addAttachment);

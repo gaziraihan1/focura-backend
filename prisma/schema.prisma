@@ -342,6 +342,8 @@ model User {
   UploadRateLimit        UploadRateLimit[]
   createdMeetings        Meeting[]         @relation("MeetingCreator")
   meetingAttendees       MeetingAttendee[]
+  mentionedInComments  CommentMention[] @relation("MentionedIn")
+  commentMentionsBy    CommentMention[] @relation("MentionedBy")
 
   @@index([stripeCustomerId])
 }
@@ -628,6 +630,8 @@ model Task {
   startDate       DateTime?
   dueDate         DateTime?
   completedAt     DateTime?
+  depth       Int      @default(0)
+
   estimatedHours  Int?
   actualHours     Float?
   position        Int         @default(0)
@@ -957,8 +961,22 @@ model Comment {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies   Comment[] @relation("CommentReplies")
+  mentions  CommentMention[]
   @@index([taskId])
   @@index([userId])
+}
+
+model CommentMention {
+  id                String   @id @default(cuid())
+  commentId         String
+  comment           Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  mentionedUserId   String
+  mentionedUser     User     @relation("MentionedIn", fields: [mentionedUserId], references: [id])
+  mentionedByUserId String
+  mentionedByUser   User     @relation("MentionedBy", fields: [mentionedByUserId], references: [id])
+  createdAt         DateTime @default(now())
+
+  @@unique([commentId, mentionedUserId])
 }
 
 model File {

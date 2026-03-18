@@ -1,9 +1,3 @@
-// backend/src/payment/providers/stripe/stripe.provider.ts
-//
-// Stripe-specific implementation. The rest of the app never imports this directly —
-// it receives it as IPaymentProvider via the registry.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import Stripe from "stripe";
 import type {
   IPaymentProvider,
@@ -25,10 +19,6 @@ import type {
 import { BillingCycle } from "@prisma/client";
 import { prisma } from "../../../index.js";
 
-// ---------------------------------------------------------------------------
-// Stripe client (scoped to this file — nothing outside imports it)
-// ---------------------------------------------------------------------------
-
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error("[StripeProvider] STRIPE_SECRET_KEY is not set");
 }
@@ -43,12 +33,6 @@ const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
 
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 
-// ---------------------------------------------------------------------------
-// Newer Stripe API versions removed current_period_start/end from the
-// Subscription type and payment_intent/subscription from Invoice type.
-// We re-add them via intersection types to keep our normalised layer clean.
-// ---------------------------------------------------------------------------
-
 type StripeSubscriptionExtended = Stripe.Subscription & {
   current_period_start: number;
   current_period_end: number;
@@ -58,10 +42,6 @@ type StripeInvoiceExtended = Stripe.Invoice & {
   payment_intent: string | Stripe.PaymentIntent | null;
   subscription: string | Stripe.Subscription | null;
 };
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function mapStatus(s: Stripe.Subscription.Status): NormalisedSubStatus {
   const map: Record<string, NormalisedSubStatus> = {
@@ -124,14 +104,8 @@ function mapEventType(type: string): NormalisedEventType | null {
   return map[type] ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Stripe provider implementation
-// ---------------------------------------------------------------------------
-
 export class StripeProvider implements IPaymentProvider {
   readonly name = "stripe";
-
-  // ---- Customer ------------------------------------------------------------
 
   async createCustomer(params: CreateCustomerParams): Promise<CustomerResult> {
     const customer = await stripeClient.customers.create({
@@ -141,8 +115,6 @@ export class StripeProvider implements IPaymentProvider {
     });
     return { providerCustomerId: customer.id };
   }
-
-  // ---- Checkout ------------------------------------------------------------
 
   async createCheckoutSession(
     params: CreateCheckoutParams,
@@ -173,8 +145,6 @@ export class StripeProvider implements IPaymentProvider {
     return { url: session.url! };
   }
 
-  // ---- Portal --------------------------------------------------------------
-
   async createPortalSession(params: CreatePortalParams): Promise<PortalResult> {
     const session = await stripeClient.billingPortal.sessions.create({
       customer: params.providerCustomerId,
@@ -182,8 +152,6 @@ export class StripeProvider implements IPaymentProvider {
     });
     return { url: session.url };
   }
-
-  // ---- Plan change ---------------------------------------------------------
 
   async changePlan(params: ChangePlanParams): Promise<void> {
     const sub = await stripeClient.subscriptions.retrieve(
@@ -200,8 +168,6 @@ export class StripeProvider implements IPaymentProvider {
     });
   }
 
-  // ---- Cancel --------------------------------------------------------------
-
   async cancelSubscription(params: CancelSubscriptionParams): Promise<void> {
     if (params.immediately) {
       await stripeClient.subscriptions.cancel(params.providerSubscriptionId);
@@ -213,8 +179,6 @@ export class StripeProvider implements IPaymentProvider {
     }
   }
 
-  // ---- Reactivate ----------------------------------------------------------
-
   async reactivateSubscription(
     params: ReactivateSubscriptionParams,
   ): Promise<void> {
@@ -222,8 +186,6 @@ export class StripeProvider implements IPaymentProvider {
       cancel_at_period_end: false,
     });
   }
-
-  // ---- Webhook -------------------------------------------------------------
 
   async verifyAndParseWebhook(
     rawBody: Buffer,
@@ -249,7 +211,6 @@ export class StripeProvider implements IPaymentProvider {
 
     const obj = event.data.object;
 
-    // ---- Subscription events -----------------------------------------------
     if (
       event.type === "customer.subscription.created" ||
       event.type === "customer.subscription.updated" ||
@@ -283,7 +244,6 @@ export class StripeProvider implements IPaymentProvider {
       return normalised;
     }
 
-    // ---- Checkout completed ------------------------------------------------
     if (event.type === "checkout.session.completed") {
       const session = obj as Stripe.Checkout.Session;
       if (session.mode !== "subscription") return null;
@@ -310,7 +270,6 @@ export class StripeProvider implements IPaymentProvider {
 
       return normalised;
     }
-    // ---- Invoice events ----------------------------------------------------
     if (
       event.type === "invoice.payment_succeeded" ||
       event.type === "invoice.payment_failed" ||
@@ -331,8 +290,6 @@ export class StripeProvider implements IPaymentProvider {
         cardLast4 = extractLast4(pi);
       }
 
-      // Stripe does NOT copy subscription metadata to invoices automatically.
-      // Fetch it so workspaceId/ownerId are always available in the normalised event.
       let subMetadata: Record<string, string> = {};
       if (inv.subscription) {
         const subId =
@@ -376,7 +333,6 @@ export class StripeProvider implements IPaymentProvider {
         paymentMethodType,
         cardLast4,
         lineItems: inv.lines?.data ?? null,
-        // subMetadata has workspaceId + ownerId, inv.metadata overrides if present
         metadata: { ...subMetadata, ...(inv.metadata ?? {}) } as Record<
           string,
           string

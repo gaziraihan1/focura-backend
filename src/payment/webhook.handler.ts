@@ -1,4 +1,3 @@
-// backend/src/payment/webhook.handler.ts
 import { Request, Response } from "express";
 import { getPaymentProvider } from "./provider.registry.js";
 import type {
@@ -14,10 +13,6 @@ import {
 import { prisma } from "../index.js";
 import { BILLING_CACHE } from "../redis/redis.client.js";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function safeDate(
   value: Date | null | undefined,
   fallback: Date = new Date(),
@@ -26,7 +21,6 @@ function safeDate(
   return value;
 }
 
-// Resolve workspaceId from providerSubscriptionId — most reliable source
 async function resolveWorkspaceFromSubId(
   providerSubId: string | null,
 ): Promise<string | undefined> {
@@ -38,8 +32,6 @@ async function resolveWorkspaceFromSubId(
   return sub?.workspaceId ?? undefined;
 }
 
-// Fallback: resolve from customerId — only used when sub doesn't exist yet
-// Uses the MOST RECENT subscription for this customer to avoid wrong workspace
 async function resolveWorkspaceFromCustomerId(
   customerId: string | null,
 ): Promise<string | undefined> {
@@ -51,10 +43,6 @@ async function resolveWorkspaceFromCustomerId(
   });
   return sub?.workspaceId ?? undefined;
 }
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 
 export async function webhookHandler(
   req: Request,
@@ -79,7 +67,6 @@ export async function webhookHandler(
     return;
   }
 
-  // Idempotency check
   const existing = await prisma.billingEvent.findUnique({
     where: { stripeEventId: event.providerEventId },
   });
@@ -119,10 +106,6 @@ export async function webhookHandler(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Dispatcher
-// ---------------------------------------------------------------------------
-
 async function processEvent(
   event: NormalisedSubscriptionEvent | NormalisedInvoiceEvent,
 ): Promise<void> {
@@ -148,14 +131,9 @@ async function processEvent(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Subscription handlers
-// ---------------------------------------------------------------------------
-
 async function handleCheckoutCompleted(event: NormalisedSubscriptionEvent) {
   const { workspaceId } = event.metadata;
   console.log(`[Webhook] Checkout completed for workspace ${workspaceId}`);
-  // subscription.created fires right after — that does the real work
 }
 
 async function handleSubscriptionUpserted(event: NormalisedSubscriptionEvent) {
@@ -226,8 +204,6 @@ async function handleSubscriptionUpserted(event: NormalisedSubscriptionEvent) {
     `[Webhook] Subscription upserted: workspace=${workspaceId} plan=${event.planName} status=${event.status}`,
   );
 
-  // Backfill invoices that already belong to this workspace but are missing subscriptionId/payerId
-  // Only touches invoices with the EXACT workspaceId — no cross-workspace contamination
   const savedSub = await prisma.subscription.findUnique({
     where: { workspaceId },
   });
@@ -285,10 +261,6 @@ async function handleTrialEnding(event: NormalisedSubscriptionEvent) {
   console.log(`[Webhook] Trial ending soon for workspace ${workspaceId}`);
 }
 
-// ---------------------------------------------------------------------------
-// Invoice handlers
-// ---------------------------------------------------------------------------
-
 async function handleInvoicePaid(event: NormalisedInvoiceEvent) {
   await upsertInvoice(event);
 
@@ -331,7 +303,6 @@ async function handleInvoicePaymentFailed(event: NormalisedInvoiceEvent) {
       await BILLING_CACHE.invalidateWorkspace(sub.workspaceId);
     }
   }
-  // TODO: send payment failed email
   console.warn(`[Webhook] Invoice payment FAILED: ${event.providerInvoiceId}`);
 }
 
@@ -339,39 +310,26 @@ async function handleInvoiceUpsert(event: NormalisedInvoiceEvent) {
   await upsertInvoice(event);
 }
 
-// ---------------------------------------------------------------------------
-// Core invoice upsert — called by all invoice handlers
-// Resolution priority:
-//   1. event.metadata.workspaceId  (set by checkout session metadata — most reliable)
-//   2. subscription lookup by providerSubscriptionId (reliable after sub exists)
-//   3. subscription lookup by customerId ordered by createdAt desc (last resort)
-// ---------------------------------------------------------------------------
-
 async function upsertInvoice(event: NormalisedInvoiceEvent) {
-  // Priority 1: metadata (set explicitly during checkout)
   let workspaceId: string | undefined =
     event.metadata?.workspaceId || undefined;
 
-  // Priority 2: look up via subscription ID (exists after SUBSCRIPTION_CREATED fires)
   if (!workspaceId && event.providerSubscriptionId) {
     workspaceId = await resolveWorkspaceFromSubId(event.providerSubscriptionId);
   }
 
-  // Priority 3: look up via customer ID — most recent subscription wins
   if (!workspaceId && event.providerCustomerId) {
     workspaceId = await resolveWorkspaceFromCustomerId(
       event.providerCustomerId,
     );
   }
 
-  // Find linked subscription
   const sub = event.providerSubscriptionId
     ? await prisma.subscription.findFirst({
         where: { stripeSubscriptionId: event.providerSubscriptionId },
       })
     : null;
 
-  // Resolve payerId — metadata first, then workspace owner
   const payerId: string | undefined =
     event.metadata?.ownerId ||
     (workspaceId
@@ -407,7 +365,6 @@ async function upsertInvoice(event: NormalisedInvoiceEvent) {
       attemptCount: event.attemptCount,
     },
     update: {
-      // Backfill nulls on update — safe because we only set if we have a value
       ...(sub?.id && { subscriptionId: sub.id }),
       ...(workspaceId && { workspaceId }),
       ...(payerId && { payerId }),
@@ -423,10 +380,6 @@ async function upsertInvoice(event: NormalisedInvoiceEvent) {
 
   if (workspaceId) await BILLING_CACHE.invalidateWorkspace(workspaceId);
 }
-
-// ---------------------------------------------------------------------------
-// Event type mapper
-// ---------------------------------------------------------------------------
 
 function mapEventType(type: string): BillingEventType {
   const map: Record<string, BillingEventType> = {

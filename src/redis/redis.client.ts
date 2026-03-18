@@ -1,39 +1,33 @@
-import { Redis } from 'ioredis';
+import { Redis } from "ioredis";
 
 let client: Redis | null = null;
 
 export function getRedisClient(): Redis {
   if (client) return client;
 
-  client = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
+  client = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", {
     maxRetriesPerRequest: 3,
     retryStrategy: (times: number) => Math.min(times * 100, 3000),
     enableReadyCheck: true,
     lazyConnect: false,
   });
 
-  client.on('error',  (err: Error) => console.error('[Redis] error:', err));
-  client.on('ready',  ()           => console.log('[Redis] connected'));
-  client.on('close',  ()           => console.warn('[Redis] connection closed'));
+  client.on("error", (err: Error) => console.error("[Redis] error:", err));
+  client.on("ready", () => console.log("[Redis] connected"));
+  client.on("close", () => console.warn("[Redis] connection closed"));
 
   return client;
 }
 
-// ---------------------------------------------------------------------------
-// Workspace-keyed billing cache helpers
-// ---------------------------------------------------------------------------
-
 export const BILLING_CACHE = {
-  // Key builders
-  subKey:         (workspaceId: string) => `billing:sub:${workspaceId}`,
-  limitsKey:      (planName: string)    => `billing:limits:${planName}`,
-  invoiceKey:     (workspaceId: string) => `billing:invoices:${workspaceId}`,
-  userWsLimitKey: (userId: string)      => `billing:user-ws-limit:${userId}`,
+  subKey: (workspaceId: string) => `billing:sub:${workspaceId}`,
+  limitsKey: (planName: string) => `billing:limits:${planName}`,
+  invoiceKey: (workspaceId: string) => `billing:invoices:${workspaceId}`,
+  userWsLimitKey: (userId: string) => `billing:user-ws-limit:${userId}`,
 
-  // TTLs (seconds)
-  SUB_TTL:           300,
-  LIMITS_TTL:        3600,
-  INVOICE_TTL:       120,
+  SUB_TTL: 300,
+  LIMITS_TTL: 3600,
+  INVOICE_TTL: 120,
   USER_WS_LIMIT_TTL: 300,
 
   async getSubscription(workspaceId: string) {

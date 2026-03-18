@@ -70,7 +70,7 @@ export const PLAN_LIMITS = {
     maxWorkspacesOwned: 5,
     // Workspace-level (only the upgraded workspace gets these)
     maxMembersPerWs:    25,
-    maxStorageMb:       10_000,
+    maxStorageMb:       10_240,
     maxFileSizeMb:      50,
     maxMeetingsPerMo:   -1,
     maxProjects:        -1,
@@ -83,7 +83,7 @@ export const PLAN_LIMITS = {
     maxWorkspacesOwned: -1,
     // Workspace-level
     maxMembersPerWs:    -1,
-    maxStorageMb:       100_000,
+    maxStorageMb:       102_400,
     maxFileSizeMb:      100,
     maxMeetingsPerMo:   -1,
     maxProjects:        -1,

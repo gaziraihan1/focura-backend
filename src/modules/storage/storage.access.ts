@@ -1,9 +1,11 @@
-
-import { prisma } from '../../index.js';
-import { UnauthorizedError, NotFoundError } from './storage.types.js';
+import { prisma } from "../../index.js";
+import { UnauthorizedError, NotFoundError } from "./storage.types.js";
 
 export const StorageAccess = {
-  async getUserRole(userId: string, workspaceId: string): Promise<string | null> {
+  async getUserRole(
+    userId: string,
+    workspaceId: string,
+  ): Promise<string | null> {
     const member = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId } },
       select: { role: true },
@@ -13,19 +15,22 @@ export const StorageAccess = {
 
   async assertMember(userId: string, workspaceId: string): Promise<string> {
     const role = await this.getUserRole(userId, workspaceId);
-    if (!role) throw new UnauthorizedError('You do not have access to this workspace');
+    if (!role)
+      throw new UnauthorizedError("You do not have access to this workspace");
     return role;
   },
 
   async isAdmin(userId: string, workspaceId: string): Promise<boolean> {
     const role = await this.getUserRole(userId, workspaceId);
-    return role === 'OWNER' || role === 'ADMIN';
+    return role === "OWNER" || role === "ADMIN";
   },
 
   async assertAdmin(userId: string, workspaceId: string): Promise<void> {
     const isAdmin = await this.isAdmin(userId, workspaceId);
     if (!isAdmin) {
-      throw new UnauthorizedError('Only workspace owners and admins can perform this action');
+      throw new UnauthorizedError(
+        "Only workspace owners and admins can perform this action",
+      );
     }
   },
 
@@ -41,8 +46,9 @@ export const StorageAccess = {
       }),
     ]);
 
-    if (!member) throw new UnauthorizedError('You do not have access to this workspace');
-    if (!workspace) throw new NotFoundError('Workspace not found');
+    if (!member)
+      throw new UnauthorizedError("You do not have access to this workspace");
+    if (!workspace) throw new NotFoundError("Workspace not found");
 
     return { workspace, role: member.role };
   },

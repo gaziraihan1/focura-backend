@@ -1,13 +1,20 @@
+export { StorageQuery } from "./storage.query.js";
+export { StorageMutation } from "./storage.mutation.js";
+export { StorageAccess } from "./storage.access.js";
 
-export { StorageQuery }    from './storage.query.js';
-export { StorageMutation } from './storage.mutation.js';
-export { StorageAccess }   from './storage.access.js';
+export {
+  toMB,
+  getMaxFileSizeForPlan,
+  getCategoryFromMimeType,
+} from "./storage.utils.js";
 
-export { toMB, getMaxFileSizeForPlan, getCategoryFromMimeType } from './storage.utils.js';
+export {
+  StorageError,
+  UnauthorizedError,
+  NotFoundError,
+} from "./storage.types.js";
 
-export { StorageError, UnauthorizedError, NotFoundError } from './storage.types.js';
-
-export { default as storageRouter } from './storage.routes.js';
+export { default as storageRouter } from "./storage.routes.js";
 
 export type {
   StorageInfo,
@@ -20,4 +27,4 @@ export type {
   MyContribution,
   BulkDeleteResult,
   UploadCheckResult,
-} from './storage.types.js';
+} from "./storage.types.js";

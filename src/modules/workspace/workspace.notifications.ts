@@ -1,5 +1,5 @@
 import { prisma } from '../../index.js';
-import { notifyUser } from '../../utils/notification.helpers.js';
+import { notifyUser } from '../notification/notification.helpers.js';
 
 export const WorkspaceNotifications = {
   async notifyInvited(params: { invitedUserId: string; inviterId: string; inviterName: string; workspaceName: string; token: string }): Promise<void> {

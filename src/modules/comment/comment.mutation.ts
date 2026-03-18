@@ -1,8 +1,8 @@
-
 import { prisma } from '../../index.js';
 import type { CreateCommentInput, UpdateCommentInput } from './comment.types.js';
 import { commentSimpleInclude } from './comment.selects.js';
 import { CommentAccess } from './comment.access.js';
+import { extractMentionedUserIds } from './mention/mention.utils.js';
 
 type OnCommentMutated = (data: {
   commentId:   string;
@@ -12,6 +12,8 @@ type OnCommentMutated = (data: {
   content?:    string;
   oldContent?: string;
   newContent?: string;
+  mentionedIds?: string[];
+  parentId?:    string | null
 }) => Promise<void>;
 
 export const CommentMutation = {
@@ -20,6 +22,31 @@ export const CommentMutation = {
     onCreated?: OnCommentMutated,
   ) {
     await CommentAccess.assertTaskAccess(input.taskId, input.userId);
+
+    if(input.parentId) {
+      const parent = await prisma.comment.findUnique({
+        where: {id: input.parentId},
+        select: {taskId: true, parentId: true},
+      });
+      if(!parent || parent.taskId !== input.taskId) {
+        throw new Error('BAD_REQUEST: Invalid parent comment');
+      }
+      if(parent.parentId) {
+        input.parentId = parent.parentId;
+      }
+    };
+
+    const mentionedIds = extractMentionedUserIds(input.content);
+
+    if(mentionedIds.length > 0) {
+      for(const mentionedUserId of mentionedIds) {
+        try {
+          await CommentAccess.assertTaskAccess(input.taskId, mentionedUserId)
+        } catch {
+
+        }
+      }
+    }
 
     const comment = await prisma.comment.create({
       data: {
@@ -31,6 +58,17 @@ export const CommentMutation = {
       include: commentSimpleInclude,
     });
 
+    if(mentionedIds.length > 0) {
+      await prisma.commentMention.createMany({
+        data: mentionedIds.map((mentionedUserId) => ({
+          commentId: comment.id,
+          mentionedUserId,
+          mentionedByUserId: input.userId,
+        })),
+        skipDuplicates: true
+      })
+    }
+
     if (onCreated) {
       onCreated({
         commentId:   comment.id,
@@ -38,6 +76,8 @@ export const CommentMutation = {
         taskTitle:   '', // provided by controller
         workspaceId: '', // provided by controller
         content:     input.content,
+        parentId:    input.parentId ?? null,
+        mentionedIds,
       }).catch((err) => console.error('Post-comment-creation callback failed:', err));
     }
 
