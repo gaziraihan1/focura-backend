@@ -1,0 +1,1 @@
+export { announcementRouter, workspaceAnnouncementRouter } from './announcement.routes.js'

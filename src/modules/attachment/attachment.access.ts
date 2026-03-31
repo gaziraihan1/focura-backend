@@ -59,7 +59,9 @@ export const AttachmentAccess = {
       select: {
         id:           true,
         name:         true,
-        size:         true,   // ← was missing
+        originalName: true,  // ← needed for activity metadata
+        size:         true,
+        taskId:       true,  // ← needed for activity taskId
         uploadedById: true,
         workspaceId:  true,
         workspace: {

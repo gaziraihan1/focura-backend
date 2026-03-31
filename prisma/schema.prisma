@@ -344,6 +344,8 @@ model User {
   meetingAttendees       MeetingAttendee[]
   mentionedInComments  CommentMention[] @relation("MentionedIn")
   commentMentionsBy    CommentMention[] @relation("MentionedBy")
+  createdAnnouncements  Announcement[]       @relation("AnnouncementCreator")
+  announcementTargets   AnnouncementTarget[] @relation("AnnouncementTargets")
 
   @@index([stripeCustomerId])
 }
@@ -392,6 +394,7 @@ model Workspace {
   systemEvents    SystemCalendarEvent[]
   uploadRateLimit UploadRateLimit[]
   meetings        Meeting[]
+  announcements  Announcement[]
 
   @@index([ownerId])
   @@index([slug])
@@ -506,6 +509,7 @@ enum InvitationStatus {
 
 model Project {
   id          String        @id @default(cuid())
+  slug        String 
   name        String
   description String?
   color       String?       @default("#667eea")
@@ -532,6 +536,8 @@ model Project {
   @@index([workspaceId])
   @@index([createdById])
   @@index([status])
+  @@unique([workspaceId, slug])
+
 }
 
 enum ProjectStatus { 
@@ -814,6 +820,45 @@ enum MeetingStatus {
   ONGOING 
   COMPLETED 
   CANCELLED 
+}
+
+enum AnnouncementVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model Announcement {
+  id          String                 @id @default(cuid())
+  title       String
+  content     String                 @db.Text
+  visibility  AnnouncementVisibility @default(PUBLIC)
+  isPinned    Boolean                @default(false)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  workspaceId String
+  createdById String
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User                   @relation("AnnouncementCreator", fields: [createdById], references: [id])
+  targets     AnnouncementTarget[]
+
+  @@index([workspaceId])
+  @@index([createdById])
+  @@index([visibility])
+  @@index([isPinned])
+  @@index([createdAt])
+}
+
+model AnnouncementTarget {
+  id             String       @id @default(cuid())
+  announcementId String
+  userId         String
+  createdAt      DateTime     @default(now())
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user           User         @relation("AnnouncementTargets", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([announcementId])
+  @@index([userId])
 }
 
 model UserCapacity {

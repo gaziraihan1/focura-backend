@@ -64,6 +64,15 @@ export const getProjectDetails = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getProjectBySlug = async (req: AuthRequest, res: Response) => {
+  try {
+    const project = await ProjectQuery.getProjectBySlug(req.user!.id, req.params.slug);
+    res.json({ success: true, data: project });
+  } catch (error) {
+    handleError(error, res);
+  }
+};
+
 export const getProjectsByWorkspace = async (req: AuthRequest, res: Response) => {
   try {
     const projects = await ProjectQuery.getProjectsByWorkspace(req.user!.id, req.params.workspaceId);

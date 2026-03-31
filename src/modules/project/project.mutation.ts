@@ -9,14 +9,17 @@ import type {
 import { ValidationError } from './project.types.js';
 import { projectListInclude, projectMemberInclude } from './project.selects.js';
 import { ProjectAccess } from './project.access.js';
+import { SlugService } from '../../services/slug.service.js';
 
 export const ProjectMutation = {
   async createProject(data: CreateProjectDto) {
     await ProjectAccess.assertWorkspaceAccess(data.createdById, data.workspaceId);
+    const slug = await SlugService.generateProjectSlug(data.name, data.workspaceId)
 
     return prisma.project.create({
       data: {
         name:        data.name,
+        slug,
         description: data.description,
         color:       data.color    ?? '#667eea',
         icon:        data.icon,

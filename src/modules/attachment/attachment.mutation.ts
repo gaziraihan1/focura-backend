@@ -17,31 +17,23 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-/**
- * Ensures the Redis storage counter exists for a workspace.
- * On first upload we seed from the DB so the counter is accurate.
- * Subsequent calls are no-ops because seedWorkspaceStorageFromDb uses NX.
- */
 async function ensureStorageSeeded(workspaceId: string): Promise<void> {
   const agg = await prisma.file.aggregate({
-    where:  { workspaceId },
-    _sum:   { size: true },
+    where: { workspaceId },
+    _sum:  { size: true },
   });
   await seedWorkspaceStorageFromDb(workspaceId, agg._sum.size ?? 0);
 }
 
 export const AttachmentMutation = {
   async addAttachment(input: AddAttachmentInput) {
-    // ── Access check ──────────────────────────────────────────────────────────
     const { workspaceId, workspacePlan } = await AttachmentAccess.assertCanAttach(
       input.taskId,
       input.userId,
     );
 
-    // ── Seed storage counter if first time ───────────────────────────────────
     await ensureStorageSeeded(workspaceId);
 
-    // ── Quota + rate limit check (all atomic Redis operations) ────────────────
     const check = await checkAndConsumeUploadQuota(
       input.userId,
       workspaceId,
@@ -56,7 +48,6 @@ export const AttachmentMutation = {
       });
     }
 
-    // ── Cloudinary upload ─────────────────────────────────────────────────────
     const base64  = input.file.buffer.toString("base64");
     const dataURI = `data:${input.file.mimetype};base64,${base64}`;
 
@@ -67,13 +58,11 @@ export const AttachmentMutation = {
         resource_type: "auto",
       });
     } catch (uploadError) {
-      // Cloudinary failed — roll back the daily counter we incremented
       await rollbackUploadQuota(input.userId, workspaceId);
       console.error("Cloudinary upload failed:", uploadError);
       throw new Error("Failed to upload file to storage");
     }
 
-    // ── DB write ──────────────────────────────────────────────────────────────
     let file: any;
     try {
       file = await prisma.file.create({
@@ -93,7 +82,6 @@ export const AttachmentMutation = {
         },
       });
     } catch (dbError) {
-      // DB failed — roll back Cloudinary asset and daily counter
       await Promise.allSettled([
         cloudinary.uploader.destroy(cloudinaryResult.public_id),
         rollbackUploadQuota(input.userId, workspaceId),
@@ -101,12 +89,27 @@ export const AttachmentMutation = {
       throw new Error("Failed to save file record");
     }
 
-    // ── Update workspace storage counter (best-effort, non-blocking) ─────────
-    // We increment AFTER a fully successful write so the counter is never ahead
-    // of reality.
     incrementWorkspaceStorage(workspaceId, cloudinaryResult.bytes).catch((err) =>
       console.error("Failed to increment storage counter:", err),
     );
+
+    // ── Activity log (best-effort, non-blocking) ──────────────────────────────
+    prisma.activity.create({
+      data: {
+        action:      'UPLOADED',
+        entityType:  'FILE',
+        entityId:    file.id,
+        userId:      input.userId,
+        workspaceId,
+        taskId:      input.taskId,
+        metadata: {
+          fileName:     file.originalName,
+          fileSize:     cloudinaryResult.bytes,
+          mimeType:     file.mimeType,
+          fileUrl:      file.url,
+        },
+      },
+    }).catch((err) => console.error("Failed to log upload activity:", err));
 
     console.log(
       `📎 File uploaded: "${file.originalName}" (${cloudinaryResult.bytes} bytes) → workspace ${workspaceId}`,
@@ -118,19 +121,36 @@ export const AttachmentMutation = {
   async deleteAttachment(fileId: string, userId: string): Promise<void> {
     const file = await AttachmentAccess.assertCanDelete(fileId, userId);
 
-    // DB delete first — if this fails nothing else should happen
+    // Snapshot metadata before deletion for the activity log
+    const taskId      = file.taskId ?? undefined;
+    const workspaceId = file.workspaceId ?? undefined;
+
     await prisma.file.delete({ where: { id: fileId } });
 
-    // Cloudinary delete is best-effort (file is already gone from DB)
     cloudinary.uploader.destroy(file.name).catch((err) =>
       console.error("Failed to delete from Cloudinary:", err),
     );
 
-    // Reclaim storage in Redis
-    if (file.workspaceId) {
-      decrementWorkspaceStorage(file.workspaceId, file.size).catch((err) =>
+    if (workspaceId) {
+      decrementWorkspaceStorage(workspaceId, file.size).catch((err) =>
         console.error("Failed to decrement storage counter:", err),
       );
+
+      // ── Activity log (best-effort, non-blocking) ────────────────────────────
+      prisma.activity.create({
+        data: {
+          action:      'DELETED',
+          entityType:  'FILE',
+          entityId:    fileId,
+          userId,
+          workspaceId,
+          taskId,
+          metadata: {
+            fileName: file.originalName,
+            fileSize: file.size,
+          },
+        },
+      }).catch((err) => console.error("Failed to log delete activity:", err));
     }
 
     console.log(`🗑️  File deleted: "${file.name}" (${file.size} bytes)`);

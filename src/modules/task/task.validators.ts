@@ -5,6 +5,9 @@ const taskStatusEnum = z.enum([
   "IN_PROGRESS",
   "COMPLETED",
   "CANCELLED",
+  "IN_REVIEW",
+  "BLOCKED",
+  
 ]);
 const taskPriorityEnum = z.enum(["URGENT", "HIGH", "MEDIUM", "LOW"]);
 const taskIntentEnum = z.enum([

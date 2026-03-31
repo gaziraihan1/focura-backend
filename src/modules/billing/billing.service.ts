@@ -214,7 +214,12 @@ export const BillingService = {
     return result;
   },
 
-  async getWorkspacePlanLimits(workspaceId: string) {
+  async getWorkspacePlanLimits(workspaceId: string ) {
+
+    if(!workspaceId) {
+      throw new Error("getWorkspacePlanLimits: workspaceId is required!")
+    }
+
     const ws = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId }, select: { plan: true } });
     const planName = ws.plan as string;
     const cached   = await BILLING_CACHE.getPlanLimits(planName);

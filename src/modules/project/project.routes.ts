@@ -9,6 +9,7 @@ import {
   addProjectMember,
   updateProjectMemberRole,
   removeProjectMember,
+  getProjectBySlug,
 } from './project.controller.js';
 import { requireProjectSlot } from '../billing/index.js';
 
@@ -18,6 +19,7 @@ router.get('/user/all',                 getUserProjects);
 router.get('/workspace/:workspaceId',   getProjectsByWorkspace);
 
 router.post('/',                        requireProjectSlot, createProject);
+router.get('/slug/:slug',               getProjectBySlug);
 router.get('/:projectId',               getProjectDetails);
 router.patch('/:projectId',             updateProject);
 router.delete('/:projectId',            deleteProject);

@@ -20,15 +20,17 @@ function planGuard(checker: LimitChecker) {
     try {
       const { allowed, reason } = await checker(req);
       if (!allowed) {
+        // resolve whichever param name the route uses
+        const workspaceId = req.params.workspaceId ?? req.params.id;
         return res.status(403).json({
-          error: "PLAN_LIMIT_EXCEEDED",
-          message: reason ?? "Your workspace plan does not allow this action.",
-          upgradeUrl: `/workspaces/${req.params.workspaceId}/billing/upgrade`,
+          error: 'PLAN_LIMIT_EXCEEDED',
+          message: reason ?? 'Your workspace plan does not allow this action.',
+          upgradeUrl: `/workspaces/${workspaceId}/billing/upgrade`,
         });
       }
       next();
     } catch (err) {
-      console.error("[PlanMiddleware]", err);
+      console.error('[PlanMiddleware]', err);
       next(err);
     }
   };
@@ -78,6 +80,10 @@ export const requireWorkspaceCreationSlot = planGuard(async (req) => {
 /** Block adding members beyond the workspace's plan member limit. */
 export const requireMemberSlot = planGuard(async (req) => {
   const workspaceId = req.params.workspaceId ?? req.params.id;
+  if (!workspaceId) {
+    return { allowed: false, reason: 'Workspace ID could not be resolved from request params.' };
+  }
+
   const limits = await BillingService.getWorkspacePlanLimits(workspaceId);
   if (limits.maxMembersPerWs === -1) return { allowed: true };
 

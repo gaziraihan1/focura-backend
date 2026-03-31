@@ -27,6 +27,7 @@ export const projectSlimSelect = {
 
 export const projectWithWorkspaceIdSelect = {
   id:          true,
+  slug:        true,
   name:        true,
   color:       true,
   workspaceId: true,

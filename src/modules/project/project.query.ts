@@ -87,4 +87,21 @@ export const ProjectQuery = {
 
     return { ...project, stats, isAdmin };
   },
+  async getProjectBySlug(userId: string, slug: string) {
+  const project = await prisma.project.findFirst({
+    where: { slug: slug, workspace: {
+      OR: [
+        {ownerId: userId},
+        {members: {some: {userId}}},
+      ],
+    } },
+    include: projectDetailInclude,
+  });
+  if (!project) throw new NotFoundError('Project not found');
+  const [stats, isAdmin] = await Promise.all([
+    Promise.resolve(calculateProjectStats(project)),
+    ProjectAccess.isProjectAdmin(userId, project)
+  ])
+  return {...project, stats, isAdmin};
+},
 };

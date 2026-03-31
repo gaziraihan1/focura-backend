@@ -1,0 +1,1 @@
+ALTER TABLE "Project" DROP CONSTRAINT IF EXISTS "Project_slug_key";

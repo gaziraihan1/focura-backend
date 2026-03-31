@@ -139,6 +139,13 @@ async function handleCheckoutCompleted(event: NormalisedSubscriptionEvent) {
 async function handleSubscriptionUpserted(event: NormalisedSubscriptionEvent) {
   const { workspaceId, ownerId } = event.metadata;
 
+  console.log("[Webhook] subscription upsert payload:", JSON.stringify({
+    workspaceId: event.metadata?.workspaceId,
+    planName: event.planName,
+    providerSubscriptionId: event.providerSubscriptionId,
+    providerCustomerId: event.providerCustomerId,
+    status: event.status,
+  }, null, 2))
   if (!workspaceId) {
     console.warn(
       "[Webhook] Subscription event missing workspaceId metadata — skipping",

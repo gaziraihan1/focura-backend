@@ -38,7 +38,7 @@ router.use('/:taskId/comments', commentRouter);
 router.use('/:taskId/subtasks', subtaskRouter)
 
 router.get('/:taskId/attachments',                                              getTaskAttachments);
-router.post('/:taskId/attachments', upload.single('file'), requireFileSizeLimit, addAttachment);
+router.post('/:taskId/attachments', upload.single('file'), addAttachment);
 router.delete('/:taskId/attachments/:attachmentId',                             deleteAttachment);
 
 export default router;

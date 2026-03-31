@@ -20,6 +20,7 @@ import {analyticsRouter} from '../src/modules/analytics/index.js';
 import {fileManagementRouter} from '../src/modules/file/index.js';
 import logoutRoutes from './routes/auth.routes.js';
 import {workspaceUsageRouter} from '../src/modules/workspaceUsage/index.js';
+import { announcementRouter } from './modules/announcement/index.js';
 import { meetingRoutes } from './modules/meeting/index.js';
 import webhookRouter from './payment/webhook.router.js';
 import { billingRouter } from '../src/modules/billing/index.js';
@@ -139,6 +140,7 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
 app.use('/api/notifications', notificationRouter);
 app.use('/api/workspaces', authenticate, workspaceRouter);
 app.use('/api/workspaces/:workspaceId/billing', authenticate, billingRouter);
+app.use('/api/announcements', authenticate, announcementRouter)
 app.use('/api/projects', authenticate, projectRouter);
 app.use('/api/tasks', authenticate, taskRouter);
 app.use('/api/daily-tasks', authenticate, dailyTaskRouter);

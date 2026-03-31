@@ -52,6 +52,7 @@ export const projectDetailInclude = {
 
 export const projectWorkspaceListSelect = {
   id:          true,
+  slug:        true,
   name:        true,
   color:       true,
   description: true,
