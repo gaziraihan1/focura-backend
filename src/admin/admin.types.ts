@@ -1,33 +1,33 @@
 export interface AdminStats {
   totals: {
-    users:      number;
+    users: number;
     workspaces: number;
-    projects:   number;
-    tasks:      number;
+    projects: number;
+    tasks: number;
     announcements: number;
+    meetings: number;
   };
-  plans: {
-    plan:  string;
-    count: number;
-  }[];
+  plans: { plan: string; count: number }[];
   featureRequests: {
-    pending:   number;
-    approved:  number;
-    planned:   number;
+    pending: number;
+    approved: number;
+    planned: number;
     completed: number;
-    rejected:  number;
+    rejected: number;
   };
+  totalStorageUsedMb: number;
   recentSignups: {
-    id:        string;
-    name:      string;
-    email:     string;
-    image:     string | null;
+    id: string;
+    name: string;
+    email: string;
+    image: string | null;
     createdAt: Date;
   }[];
   recentWorkspaces: {
-    id:        string;
-    name:      string;
-    plan:      string;
+    id: string;
+    name: string;
+    slug: string;
+    plan: string;
     createdAt: Date;
     owner: { id: string; name: string; email: string };
     _count: { members: number; projects: number };
@@ -35,132 +35,266 @@ export interface AdminStats {
 }
 
 export interface AdminWorkspace {
-  id:        string;
-  name:      string;
-  slug:      string;
-  plan:      string;
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
   createdAt: Date;
-  owner: {
-    id:    string;
-    name:  string;
-    email: string;
-    image: string | null;
-  };
-  _count: {
-    members:  number;
-    projects: number;
-    tasks:    number;
-  };
+  maxMembers: number;
+  maxStorageMb: number;
+  usedStorageMb: number;
+  owner: { id: string; name: string; email: string; image: string | null };
+  subscription: {
+    status: string;
+    billingCycle: string;
+    currentPeriodEnd: Date;
+    cancelAtPeriodEnd: boolean;
+    planName: string;
+    monthlyPriceCents: number;
+  } | null;
+  _count: { members: number; projects: number; tasks: number };
 }
 
 export interface AdminWorkspaceDetail {
-  id:          string;
-  name:        string;
-  slug:        string;
-  plan:        string;
-  createdAt:   Date;
-  updatedAt:   Date;
-  owner: {
-    id:    string;
-    name:  string;
-    email: string;
-    image: string | null;
-  };
-  members: {
-    id:       string;
-    role:     string;
-    joinedAt: Date;
-    user: {
-      id:    string;
-      name:  string;
-      email: string;
-      image: string | null;
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  description: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  maxMembers: number;
+  maxStorageMb: number;
+  usedStorageMb: number;
+  owner: { id: string; name: string; email: string; image: string | null };
+  subscription: {
+    id: string;
+    status: string;
+    billingCycle: string;
+    currentPeriodStart: Date;
+    currentPeriodEnd: Date;
+    cancelAtPeriodEnd: boolean;
+    canceledAt: Date | null;
+    stripeCustomerId: string;
+    plan: {
+      id: string;
+      name: string;
+      displayName: string;
+      monthlyPriceCents: number;
+      yearlyPriceCents: number;
+      maxMembersPerWs: number;
+      maxStorageMb: number;
+      maxProjects: number;
+      maxMeetingsPerMo: number;
+      analyticsAccess: boolean;
+      prioritySupport: boolean;
+      apiAccess: boolean;
     };
+    invoices: {
+      id: string;
+      stripeInvoiceId: string;
+      amountPaid: number;
+      currency: string;
+      status: string;
+      paidAt: Date | null;
+      invoicePdf: string | null;
+      periodStart: Date | null;
+      periodEnd: Date | null;
+    }[];
+  } | null;
+  members: {
+    id: string;
+    role: string;
+    joinedAt: Date;
+    user: { id: string; name: string; email: string; image: string | null };
   }[];
   projects: {
-    id:        string;
-    name:      string;
-    slug:      string;
-    status:    string;
-    priority:  string;
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    priority: string;
     createdAt: Date;
+    createdBy: { id: string; name: string };
     _count: { tasks: number; members: number };
   }[];
   _count: {
-    members:  number;
+    members: number;
     projects: number;
+    tasks: number;
+    meetings: number;
+    announcements: number;
   };
 }
 
 export interface AdminUser {
-  id:        string;
-  name:      string;
-  email:     string;
-  image:     string | null;
-  role:      string;
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  role: string;
   createdAt: Date;
+  lastLoginAt: Date | null;
   _count: {
-    workspaces:       number; // owned
-    workspaceMember:  number; // member of
+    ownedWorkspaces: number;
+    workspaceMember: number;
+    createdTasks: number;
+    comments: number;
+    focusSessions: number;
+    featureRequests: number;
+  };
+}
+
+export interface AdminUserDetail {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  role: string;
+  bio: string | null;
+  timezone: string | null;
+  createdAt: Date;
+  lastLoginAt: Date | null;
+  lastProfileUpdateAt: Date | null;
+  ownedWorkspaces: {
+    id: string;
+    name: string;
+    slug: string;
+    plan: string;
+    _count: { members: number; projects: number };
+  }[];
+  workspaceMemberships: {
+    role: string;
+    joinedAt: Date;
+    workspace: { id: string; name: string; slug: string; plan: string };
+  }[];
+  projectMemberships: {
+    role: string;
+    joinedAt: Date;
+    project: {
+      id: string;
+      name: string;
+      slug: string;
+      status: string;
+      workspace: { id: string; name: string };
+    };
+  }[];
+  recentTasks: {
+    id: string;
+    title: string;
+    status: string;
+    priority: string;
+    createdAt: Date;
+    project: { id: string; name: string } | null;
+    workspace: { id: string; name: string } | null;
+  }[];
+  featureRequests: {
+    id: string;
+    title: string;
+    status: string;
+    createdAt: Date;
+  }[];
+  taskStats: {
+    total: number;
+    todo: number;
+    inProgress: number;
+    completed: number;
+    cancelled: number;
+  };
+  storage: { usedMb: number; fileCount: number };
+  _count: {
+    ownedWorkspaces: number;
+    workspaceMember: number;
+    createdTasks: number;
+    assignedTasks: number;
+    comments: number;
+    focusSessions: number;
+    featureRequests: number;
+    files: number;
   };
 }
 
 export interface AdminProject {
-  id:        string;
-  name:      string;
-  slug:      string;
-  status:    string;
-  priority:  string;
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  priority: string;
   createdAt: Date;
+  dueDate: Date | null;
+  completedAt: Date | null;
+  workspace: { id: string; name: string; slug: string };
+  createdBy: { id: string; name: string; email: string };
+  manager: { id: string; name: string; email: string } | null;
+  taskBreakdown: {
+    total: number;
+    todo: number;
+    inProgress: number;
+    completed: number;
+    cancelled: number;
+  };
+  _count: { tasks: number; members: number; files: number };
+}
+
+export interface AdminBilling {
+  subscriptionId: string;
+  stripeSubscriptionId: string;
+  stripeCustomerId: string;
+  status: string;
+  billingCycle: string;
+  currentPeriodStart: Date;
+  currentPeriodEnd: Date;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: Date | null;
+  plan: {
+    id: string;
+    name: string;
+    displayName: string;
+    monthlyPriceCents: number;
+    yearlyPriceCents: number;
+  };
   workspace: {
-    id:   string;
+    id: string;
     name: string;
     slug: string;
+    plan: string;
+    owner: { id: string; name: string; email: string };
   };
-  createdBy: {
-    id:    string;
-    name:  string;
-    email: string;
-  };
-  _count: {
-    tasks:   number;
-    members: number;
-  };
+  recentInvoices: {
+    id: string;
+    amountPaid: number;
+    currency: string;
+    status: string;
+    paidAt: Date | null;
+    invoicePdf: string | null;
+  }[];
 }
 
 export interface AdminActivity {
-  id:         string;
-  action:     string;
+  id: string;
+  action: string;
   entityType: string;
-  entityId:   string;
-  createdAt:  Date;
-  user: {
-    id:    string;
-    name:  string;
-    email: string;
-    image: string | null;
-  };
-  workspace: {
-    id:   string;
-    name: string;
-  } | null;
+  entityId: string;
+  createdAt: Date;
   metadata: any;
+  user: { id: string; name: string; email: string; image: string | null };
+  workspace: { id: string; name: string; slug: string } | null;
 }
 
 export interface AdminPaginationParams {
-  page?:     number;
+  page?: number;
   pageSize?: number;
-  search?:   string;
+  search?: string;
 }
 
 export interface PaginatedAdminResult<T> {
   data: T[];
   pagination: {
-    page:       number;
-    pageSize:   number;
+    page: number;
+    pageSize: number;
     totalCount: number;
     totalPages: number;
-    hasNext:    boolean;
-    hasPrev:    boolean;
+    hasNext: boolean;
+    hasPrev: boolean;
   };
 }

@@ -287,46 +287,73 @@ export const AnalyticsQuery = {
       },
     });
 
-    const contributions = await Promise.all(
-      members.map(async (member) => {
-        const [completedTasks, totalHours, commentsCount, filesCount] =
-          await Promise.all([
-            prisma.task.count({
-              where: {
-                workspaceId,
-                status: "COMPLETED",
-                assignees: { some: { userId: member.userId } },
-              },
-            }),
-            prisma.timeEntry
-              .aggregate({
-                where: { userId: member.userId, task: { workspaceId } },
-                _sum: { duration: true },
-              })
-              .then((result) => minutesToHours(result._sum.duration)),
-            prisma.comment.count({
-              where: { userId: member.userId, task: { workspaceId } },
-            }),
-            prisma.file.count({
-              where: { uploadedById: member.userId, workspaceId },
-            }),
-          ]);
+    const [completedTaskRows, timeRows, commentRows, fileRows] =
+      await Promise.all([
+        prisma.taskAssignee.groupBy({
+          by: ["userId"],
+          where: {
+            task: { workspaceId, status: "COMPLETED" },
+            userId: { in: members.map((m) => m.userId) },
+          },
+          _count: { taskId: true },
+        }),
+        prisma.timeEntry.groupBy({
+          by: ["userId"],
+          where: {
+            userId: { in: members.map((m) => m.userId) },
+            task: { workspaceId },
+          },
+          _sum: { duration: true },
+        }),
+        prisma.comment.groupBy({
+          by: ["userId"],
+          where: {
+            userId: { in: members.map((m) => m.userId) },
+            task: { workspaceId },
+          },
+          _count: { userId: true },
+        }),
+        prisma.file.groupBy({
+          by: ["uploadedById"],
+          where: {
+            workspaceId,
+            uploadedById: { in: members.map((m) => m.userId) },
+          },
+          _count: { uploadedById: true },
+        }),
+      ]);
 
-        return {
-          userId: member.user.id,
-          userName: member.user.name,
-          userEmail: member.user.email,
-          userImage: member.user.image,
-          role: member.role,
-          completedTasks,
-          totalHours,
-          commentsCount,
-          filesCount,
-          contributionScore:
-            completedTasks * 2 + totalHours + commentsCount * 0.5,
-        };
-      }),
+    const completedTaskMap = new Map(
+      completedTaskRows.map((r) => [r.userId, r._count.taskId]),
     );
+    const timeMap = new Map(
+      timeRows.map((r) => [r.userId, minutesToHours(r._sum.duration)]),
+    );
+    const commentMap = new Map(
+      commentRows.map((r) => [r.userId, r._count.userId]),
+    );
+    const fileMap = new Map(
+      fileRows.map((r) => [r.uploadedById, r._count.uploadedById]),
+    );
+
+    const contributions = members.map((member) => {
+      const completedTasks = completedTaskMap.get(member.userId) ?? 0;
+      const totalHours = timeMap.get(member.userId) ?? 0;
+      const commentsCount = commentMap.get(member.userId) ?? 0;
+      const filesCount = fileMap.get(member.userId) ?? 0;
+      return {
+        userId: member.user.id,
+        userName: member.user.name,
+        userEmail: member.user.email,
+        userImage: member.user.image,
+        role: member.role,
+        completedTasks,
+        totalHours,
+        commentsCount,
+        filesCount,
+        contributionScore: completedTasks * 2 + totalHours + commentsCount * 0.5,
+      };
+    });
 
     return contributions.sort(
       (a, b) => b.contributionScore - a.contributionScore,
@@ -521,29 +548,35 @@ export const AnalyticsQuery = {
       },
     });
 
-    const workload = await Promise.all(
-      members.map(async (member) => {
-        const assignedTasks = await prisma.task.count({
-          where: {
-            workspaceId,
-            status: { in: ["TODO", "IN_PROGRESS"] },
-            assignees: { some: { userId: member.userId } },
-          },
-        });
-
-        let status: "normal" | "high" | "overloaded" = "normal";
-        if (assignedTasks >= 15) status = "overloaded";
-        else if (assignedTasks >= 10) status = "high";
-
-        return {
-          userId: member.user.id,
-          userName: member.user.name,
-          userEmail: member.user.email,
-          assignedTasks,
-          status,
-        };
-      }),
+    const assignedTaskRows = await prisma.taskAssignee.groupBy({
+      by: ["userId"],
+      where: {
+        userId: { in: members.map((m) => m.userId) },
+        task: {
+          workspaceId,
+          status: { in: ["TODO", "IN_PROGRESS"] },
+        },
+      },
+      _count: { taskId: true },
+    });
+    const assignedTaskMap = new Map(
+      assignedTaskRows.map((r) => [r.userId, r._count.taskId]),
     );
+
+    const workload = members.map((member) => {
+      const assignedTasks = assignedTaskMap.get(member.userId) ?? 0;
+      let status: "normal" | "high" | "overloaded" = "normal";
+      if (assignedTasks >= 15) status = "overloaded";
+      else if (assignedTasks >= 10) status = "high";
+
+      return {
+        userId: member.user.id,
+        userName: member.user.name,
+        userEmail: member.user.email,
+        assignedTasks,
+        status,
+      };
+    });
 
     return workload.sort((a, b) => b.assignedTasks - a.assignedTasks);
   },

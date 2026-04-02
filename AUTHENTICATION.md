@@ -74,6 +74,7 @@ Browser                  Next.js (NextAuth)           Express Backend
 - Every refresh call issues a **new token pair** and invalidates the old refresh token JTI
 - If an already-rotated JTI is presented, it is treated as a **replay attack** and logged as `TOKEN_REPLAY_DETECTED`
 - `revokeAllRefreshTokens(userId)` supports logout-from-all-devices
+- Duplicate/concurrent refresh requests for the same old JTI are handled idempotently for a short window to avoid false replay outcomes during network retries
 
 ---
 
@@ -137,6 +138,8 @@ jwt callback fires (on every request)
         └── call POST /api/auth/refresh
               │
               ├── success → update token pair in JWT cookie
+              ├── duplicate in-flight refresh with same old JTI
+              │     └── receives cached successful refresh response
               └── failure → clear backendToken, keep session alive
                            (next API call gets 401, user is NOT logged out)
 ```
@@ -290,7 +293,7 @@ Authorization: Bearer <accessToken>   (optional — logout succeeds even if expi
 ```
 
 - Revokes current access token JTI
-- Calls `revokeAllRefreshTokens(userId)` — deletes all `focura:refresh:userId:*` keys from Redis
+- Calls `revokeAllRefreshTokens(userId)` — revokes all refresh tokens for the user using a per-user refresh index (with legacy key-scan fallback)
 - Every other session will fail to refresh and naturally expire
 
 **Note:** The `/logout` backend route does **not** use `authenticate` middleware. The token may already be expired at logout time — the route attempts to parse it for revocation but never blocks on it.
@@ -378,7 +381,11 @@ All keys are prefixed with `focura:` to avoid collisions.
 |------------------------------------|-----------|--------------------------------|
 | `focura:revoked:access:<jti>`      | 900s      | Revoked access token JTIs      |
 | `focura:refresh:<userId>:<jti>`    | 7 days    | Valid refresh token JTIs       |
+| `focura:refresh:index:<userId>`    | no TTL*   | Set of refresh-token keys per user for fast revoke-all |
+| `focura:refresh:result:<userId>:<oldJti>` | 10s | Cached refresh response for idempotent duplicate refresh handling |
 | `focura:rl:<key>`                  | 60s       | Rate limiting sliding window   |
+
+\* Index members are updated on token store/rotate/revoke; key is removed on revoke-all.
 
 ---
 

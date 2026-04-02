@@ -38,16 +38,6 @@ export const CommentMutation = {
 
     const mentionedIds = extractMentionedUserIds(input.content);
 
-    if(mentionedIds.length > 0) {
-      for(const mentionedUserId of mentionedIds) {
-        try {
-          await CommentAccess.assertTaskAccess(input.taskId, mentionedUserId)
-        } catch {
-
-        }
-      }
-    }
-
     const comment = await prisma.comment.create({
       data: {
         content:  input.content,

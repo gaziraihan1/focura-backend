@@ -13,16 +13,38 @@ import {
   rotateRefreshToken,
   revokeAccessToken,
   revokeAllRefreshTokens,
-  isRefreshTokenValid,
 } from "../lib/auth/tokenRevocation.js";
 import { auditLog } from "../lib/auth/auditLog.js";
 import { redis } from "../lib/redis.js";
 
 const router = Router();
+const devRefreshResponseCache = new Map<string, string>();
+const REFRESH_DEDUPE_TTL_SECONDS = 10;
 const getIp = (req: any) =>
   (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
   req.socket.remoteAddress ||
   "unknown";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getCachedRefreshResponse(cacheKey: string) {
+  if (redis) return await redis.get<string>(cacheKey);
+  return devRefreshResponseCache.get(cacheKey) ?? null;
+}
+
+async function cacheRefreshResponse(cacheKey: string, payload: string) {
+  if (redis) {
+    await redis.setex(cacheKey, REFRESH_DEDUPE_TTL_SECONDS, payload);
+    return;
+  }
+  devRefreshResponseCache.set(cacheKey, payload);
+  setTimeout(
+    () => devRefreshResponseCache.delete(cacheKey),
+    REFRESH_DEDUPE_TTL_SECONDS * 1000,
+  );
+}
 
 function verifyExchangeProof(payload: string, signature: string): boolean {
   const expected = crypto
@@ -196,20 +218,10 @@ router.post("/refresh", async (req, res) => {
     }
 
     const decoded = verifyToken(refreshToken, "refresh");
-    const isValid = await isRefreshTokenValid(decoded.id, decoded.jti);
-
-    if (!isValid) {
-      auditLog("TOKEN_REPLAY_DETECTED", {
-        userId: decoded.id,
-        jti: decoded.jti,
-        ip,
-        reason: "Refresh token already used or revoked",
-      });
-      return res.status(401).json({
-        success: false,
-        message: "Refresh token invalid or already used",
-        code: "TOKEN_INVALID",
-      });
+    const refreshReplayCacheKey = `focura:refresh:result:${decoded.id}:${decoded.jti}`;
+    const cachedResponse = await getCachedRefreshResponse(refreshReplayCacheKey);
+    if (cachedResponse) {
+      return res.json(JSON.parse(cachedResponse));
     }
 
     const tokens = createTokenPair({
@@ -226,12 +238,39 @@ router.post("/refresh", async (req, res) => {
     );
 
     if (!rotated) {
+      for (let i = 0; i < 3; i++) {
+        await sleep(75);
+        const duplicateResponse =
+          await getCachedRefreshResponse(refreshReplayCacheKey);
+        if (duplicateResponse) {
+          return res.json(JSON.parse(duplicateResponse));
+        }
+      }
+
+      auditLog("TOKEN_REPLAY_DETECTED", {
+        userId: decoded.id,
+        jti: decoded.jti,
+        ip,
+        reason: "Refresh token already used or revoked",
+      });
       return res.status(401).json({
         success: false,
-        message: "Token rotation failed",
-        code: "ROTATION_FAILED",
+        message: "Refresh token invalid or already used",
+        code: "TOKEN_INVALID",
       });
     }
+
+    const responsePayload = {
+      success: true,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      accessTokenExpiry: tokens.accessTokenExpiry,
+      refreshTokenExpiry: tokens.refreshTokenExpiry,
+    };
+    await cacheRefreshResponse(
+      refreshReplayCacheKey,
+      JSON.stringify(responsePayload),
+    );
 
     auditLog("TOKEN_REFRESHED", {
       userId: decoded.id,
@@ -239,13 +278,7 @@ router.post("/refresh", async (req, res) => {
       sessionId: decoded.sessionId,
     });
 
-    return res.json({
-      success: true,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      accessTokenExpiry: tokens.accessTokenExpiry,
-      refreshTokenExpiry: tokens.refreshTokenExpiry,
-    });
+    return res.json(responsePayload);
   } catch (err: any) {
     if (err.name === "TokenExpiredError") {
       return res.status(401).json({

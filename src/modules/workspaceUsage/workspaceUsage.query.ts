@@ -107,16 +107,20 @@ export const WorkspaceUsageQuery = {
       select: { userId: true, createdAt: true },
     });
 
+    const dayUsersMap = new Map<string, Set<string>>();
+    for (const activity of activities) {
+      const key = activity.createdAt.toISOString().split("T")[0];
+      if (!dayUsersMap.has(key)) dayUsersMap.set(key, new Set());
+      dayUsersMap.get(key)!.add(activity.userId);
+    }
+
     return dateRange.map((date) => {
       const { start, end } = getDayBounds(date);
-      const uniqueUsers = new Set(
-        activities
-          .filter((a) => a.createdAt >= start && a.createdAt <= end)
-          .map((a) => a.userId),
-      );
+      const key = start.toISOString().split("T")[0];
+      const uniqueUsers = dayUsersMap.get(key) ?? new Set<string>();
 
       return {
-        date: start.toISOString().split("T")[0],
+        date: end.toISOString().split("T")[0],
         count: uniqueUsers.size,
       };
     });
@@ -382,6 +386,11 @@ export const WorkspaceUsageQuery = {
     }
 
     const projectIds = projects.map((p) => p.id);
+    const tasks = await prisma.task.findMany({
+      where: { projectId: { in: projectIds } },
+      select: { id: true, projectId: true },
+    });
+    const taskProjectMap = new Map(tasks.map((t) => [t.id, t.projectId]));
 
     const [commentsByProject, activitiesByProject] = await Promise.all([
       prisma.comment
@@ -390,13 +399,7 @@ export const WorkspaceUsageQuery = {
           where: { task: { projectId: { in: projectIds } } },
           _count: { id: true },
         })
-        .then(async (counts) => {
-          const taskIds = counts.map((c) => c.taskId);
-          const tasks = await prisma.task.findMany({
-            where: { id: { in: taskIds } },
-            select: { id: true, projectId: true },
-          });
-          const taskProjectMap = new Map(tasks.map((t) => [t.id, t.projectId]));
+        .then((counts) => {
           const projectCommentMap = new Map<string, number>();
           counts.forEach((c) => {
             const projId = taskProjectMap.get(c.taskId);
@@ -418,13 +421,7 @@ export const WorkspaceUsageQuery = {
           },
           _count: { id: true },
         })
-        .then(async (counts) => {
-          const taskIds = counts.map((c) => c.taskId!).filter(Boolean);
-          const tasks = await prisma.task.findMany({
-            where: { id: { in: taskIds } },
-            select: { id: true, projectId: true },
-          });
-          const taskProjectMap = new Map(tasks.map((t) => [t.id, t.projectId]));
+        .then((counts) => {
           const projectActivityMap = new Map<string, number>();
           counts.forEach((c) => {
             if (c.taskId) {
@@ -448,13 +445,7 @@ export const WorkspaceUsageQuery = {
         orderBy: { createdAt: "desc" },
         distinct: ["taskId"],
       })
-      .then(async (activities) => {
-        const taskIds = activities.map((a) => a.taskId!).filter(Boolean);
-        const tasks = await prisma.task.findMany({
-          where: { id: { in: taskIds } },
-          select: { id: true, projectId: true },
-        });
-        const taskProjectMap = new Map(tasks.map((t) => [t.id, t.projectId]));
+      .then((activities) => {
         const projectLastActivityMap = new Map<string, Date>();
         activities.forEach((a) => {
           if (a.taskId) {
@@ -713,28 +704,57 @@ export const WorkspaceUsageQuery = {
     ]);
 
     const monthRanges = getMonthRange(6);
-    const trend = await Promise.all(
-      monthRanges.map(async ({ start, end, label }) => {
-        const [users, projects, tasks] = await Promise.all([
-          prisma.workspaceMember.count({
-            where: { workspaceId, joinedAt: { gte: start, lte: end } },
-          }),
-          prisma.project.count({
-            where: { workspaceId, createdAt: { gte: start, lte: end } },
-          }),
-          prisma.task.count({
-            where: { workspaceId, createdAt: { gte: start, lte: end } },
-          }),
-        ]);
-        return { month: label, users, projects, tasks };
-      }),
-    );
+    const trendWindowStart = monthRanges[0]?.start ?? firstDayOfMonth;
+    const trendWindowEnd = monthRanges[monthRanges.length - 1]?.end ?? now;
 
-    const [active, completed, archived] = await Promise.all([
-      prisma.project.count({ where: { workspaceId, status: "ACTIVE" } }),
-      prisma.project.count({ where: { workspaceId, status: "COMPLETED" } }),
-      prisma.project.count({ where: { workspaceId, status: "ARCHIVED" } }),
+    const [memberRows, projectRows, taskRows, lifecycleRows] = await Promise.all([
+      prisma.workspaceMember.findMany({
+        where: {
+          workspaceId,
+          joinedAt: { gte: trendWindowStart, lte: trendWindowEnd },
+        },
+        select: { joinedAt: true },
+      }),
+      prisma.project.findMany({
+        where: {
+          workspaceId,
+          createdAt: { gte: trendWindowStart, lte: trendWindowEnd },
+        },
+        select: { createdAt: true },
+      }),
+      prisma.task.findMany({
+        where: {
+          workspaceId,
+          createdAt: { gte: trendWindowStart, lte: trendWindowEnd },
+        },
+        select: { createdAt: true },
+      }),
+      prisma.project.groupBy({
+        by: ["status"],
+        where: { workspaceId, status: { in: ["ACTIVE", "COMPLETED", "ARCHIVED"] } },
+        _count: { status: true },
+      }),
     ]);
+
+    const trend = monthRanges.map(({ start, end, label }) => {
+      const users = memberRows.filter(
+        (row) => row.joinedAt >= start && row.joinedAt <= end,
+      ).length;
+      const projects = projectRows.filter(
+        (row) => row.createdAt >= start && row.createdAt <= end,
+      ).length;
+      const tasks = taskRows.filter(
+        (row) => row.createdAt >= start && row.createdAt <= end,
+      ).length;
+      return { month: label, users, projects, tasks };
+    });
+
+    const lifecycleMap = new Map(
+      lifecycleRows.map((row) => [row.status, row._count.status]),
+    );
+    const active = lifecycleMap.get("ACTIVE") ?? 0;
+    const completed = lifecycleMap.get("COMPLETED") ?? 0;
+    const archived = lifecycleMap.get("ARCHIVED") ?? 0;
 
     return {
       thisMonth: { newUsers, newProjects, newTasks },

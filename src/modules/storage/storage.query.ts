@@ -64,21 +64,24 @@ export const StorageQuery = {
   ): Promise<StorageBreakdown> {
     await StorageAccess.assertMember(userId, workspaceId);
 
-    const files = await prisma.file.findMany({
-      where: { workspaceId },
-      select: { size: true, taskId: true, projectId: true },
-    });
+    const [attachmentAgg, projectAgg, workspaceAgg] = await Promise.all([
+      prisma.file.aggregate({
+        where: { workspaceId, taskId: { not: null } },
+        _sum: { size: true },
+      }),
+      prisma.file.aggregate({
+        where: { workspaceId, taskId: null, projectId: { not: null } },
+        _sum: { size: true },
+      }),
+      prisma.file.aggregate({
+        where: { workspaceId, taskId: null, projectId: null },
+        _sum: { size: true },
+      }),
+    ]);
 
-    let attachments = 0;
-    let workspaceFiles = 0;
-    let projectFiles = 0;
-
-    for (const file of files) {
-      const mb = file.size / (1024 * 1024);
-      if (file.taskId) attachments += mb;
-      else if (file.projectId) projectFiles += mb;
-      else workspaceFiles += mb;
-    }
+    const attachments = toMB(attachmentAgg._sum.size ?? 0);
+    const projectFiles = toMB(projectAgg._sum.size ?? 0);
+    const workspaceFiles = toMB(workspaceAgg._sum.size ?? 0);
 
     const round = (n: number) => Math.round(n * 100) / 100;
     return {
@@ -95,47 +98,42 @@ export const StorageQuery = {
   ): Promise<UserStorageContribution[]> {
     await StorageAccess.assertAdmin(requestingUserId, workspaceId);
 
-    const files = await prisma.file.findMany({
-      where: { workspaceId },
-      select: {
-        size: true,
-        uploadedBy: { select: { id: true, name: true, email: true } },
-      },
+    const [totals, grouped] = await Promise.all([
+      prisma.file.aggregate({
+        where: { workspaceId },
+        _sum: { size: true },
+      }),
+      prisma.file.groupBy({
+        by: ["uploadedById"],
+        where: { workspaceId },
+        _sum: { size: true },
+        _count: { uploadedById: true },
+      }),
+    ]);
+
+    const userIds = grouped.map((g) => g.uploadedById);
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, email: true },
     });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const totalMB = toMB(totals._sum.size ?? 0);
 
-    const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-    const totalMB = totalBytes / (1024 * 1024);
-
-    const userMap = new Map<
-      string,
-      { name: string | null; email: string; size: number; count: number }
-    >();
-
-    for (const file of files) {
-      const uid = file.uploadedBy.id;
-      const existing = userMap.get(uid) ?? {
-        name: file.uploadedBy.name,
-        email: file.uploadedBy.email,
-        size: 0,
-        count: 0,
-      };
-      existing.size += file.size;
-      existing.count += 1;
-      userMap.set(uid, existing);
-    }
-
-    return Array.from(userMap.entries())
-      .map(([userId, data]) => {
-        const usageMB = toMB(data.size);
+    return grouped
+      .map((g) => {
+        const user = userMap.get(g.uploadedById);
+        if (!user) return null;
+        const usageMB = toMB(g._sum.size ?? 0);
         return {
-          userId,
-          userName: data.name,
-          userEmail: data.email,
+          userId: g.uploadedById,
+          userName: user.name,
+          userEmail: user.email,
           usageMB,
-          fileCount: data.count,
+          fileCount: g._count.uploadedById,
           percentage: totalMB > 0 ? Math.round((usageMB / totalMB) * 100) : 0,
         };
       })
+      .filter((u): u is NonNullable<typeof u> => u !== null)
       .sort((a, b) => b.usageMB - a.usageMB);
   },
 
@@ -248,26 +246,19 @@ export const StorageQuery = {
   ): Promise<FileTypeBreakdown[]> {
     await StorageAccess.assertMember(userId, workspaceId);
 
-    const files = await prisma.file.findMany({
+    const files = await prisma.file.groupBy({
+      by: ["mimeType"],
       where: { workspaceId },
-      select: { mimeType: true, size: true },
+      _count: { mimeType: true },
+      _sum: { size: true },
     });
 
-    const typeMap = new Map<string, { count: number; size: number }>();
-
-    for (const file of files) {
-      const entry = typeMap.get(file.mimeType) ?? { count: 0, size: 0 };
-      entry.count += 1;
-      entry.size += file.size;
-      typeMap.set(file.mimeType, entry);
-    }
-
-    return Array.from(typeMap.entries())
-      .map(([mimeType, data]) => ({
-        mimeType,
-        category: getCategoryFromMimeType(mimeType),
-        count: data.count,
-        sizeMB: toMB(data.size),
+    return files
+      .map((f) => ({
+        mimeType: f.mimeType,
+        category: getCategoryFromMimeType(f.mimeType),
+        count: f._count.mimeType,
+        sizeMB: toMB(f._sum.size ?? 0),
       }))
       .sort((a, b) => b.sizeMB - a.sizeMB);
   },

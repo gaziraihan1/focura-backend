@@ -426,6 +426,9 @@ Server runs on `http://localhost:5000`
 | `GET` | `/api/notifications/stream` | SSE stream (token auth via query param) |
 | `GET` | `/api/notifications` | Paginated notifications |
 | `GET` | `/api/workspaces` | List user workspaces |
+| `POST` | `/api/workspaces` | Create workspace |
+| `GET` | `/api/workspace-usage/:workspaceId` | Workspace usage dashboard data |
+| `GET` | `/api/workspaces/:workspaceId/billing/subscription` | Workspace subscription details |
 | `POST` | `/api/projects` | Create project |
 | `GET` | `/api/tasks` | List tasks |
 | `GET` | `/api/tasks/stats` | Task analytics |
@@ -436,10 +439,13 @@ Server runs on `http://localhost:5000`
 | `GET` | `/api/calendar` | Calendar events |
 | `GET` | `/api/labels` | Workspace labels |
 | `GET` | `/api/analytics` | Workspace analytics |
+| `GET` | `/api/features` | Feature requests and voting |
+| `GET` | `/api/meetings/:workspaceId/meetings` | Workspace meetings |
 | `POST` | `/api/upload` | File upload |
-| `GET` | `/api/activity` | Activity feed |
+| `GET` | `/api/activities` | Activity feed |
 | `GET` | `/api/storage` | Storage usage |
 | `GET` | `/api/file-management` | File management |
+| `GET` | `/api/admin/stats` | Platform-wide admin dashboard metrics |
 
 All routes are protected by `authenticate` middleware unless explicitly noted.
 
@@ -450,8 +456,30 @@ All routes are protected by `authenticate` middleware unless explicitly noted.
 - PostgreSQL via Prisma ORM
 - Workspace-based data isolation — every query is scoped to a workspace
 - Optimized indexes for task queries
-- Pagination via cursor-based approach (not offset)
+- Pagination support is implemented per-module based on endpoint needs
 - Relational integrity enforced at the DB level
+
+---
+
+## 🧪 Performance Benchmarking
+
+You can benchmark key API endpoints with:
+
+```bash
+npm run bench:api
+```
+
+Required environment variables:
+
+```env
+BENCH_BASE_URL=http://localhost:5000/api
+BENCH_ACCESS_TOKEN=<valid access token>
+BENCH_WORKSPACE_ID=<workspace id>
+BENCH_RUNS=20
+BENCH_CONCURRENCY=1
+```
+
+The benchmark script reports `avg`, `min`, `max`, `p95`, and `p99` latencies for workspace usage, storage, and analytics endpoints.
 
 ---
 

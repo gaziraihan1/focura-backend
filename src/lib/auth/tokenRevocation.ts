@@ -14,6 +14,9 @@ if (
 const devRevokedAccess = new Set<string>();
 const devRefreshTokens = new Map<string, string>();
 const devSseTokens = new Map<string, string>();
+const refreshIndexKey = (userId: string) => `focura:refresh:index:${userId}`;
+const refreshTokenKey = (userId: string, jti: string) =>
+  `focura:refresh:${userId}:${jti}`;
 
 export async function revokeAccessToken(
   jti: string,
@@ -36,12 +39,15 @@ export async function storeRefreshToken(
   jti: string,
   expiresInSeconds: number,
 ): Promise<void> {
-  if (redis)
+  if (redis) {
+    const tokenKey = refreshTokenKey(userId, jti);
     await redis.setex(
-      `focura:refresh:${userId}:${jti}`,
+      tokenKey,
       expiresInSeconds,
       JSON.stringify({ jti, createdAt: Date.now() }),
     );
+    await redis.sadd(refreshIndexKey(userId), tokenKey);
+  }
   else {
     devRefreshTokens.set(userId, jti);
     setTimeout(() => devRefreshTokens.delete(userId), expiresInSeconds * 1000);
@@ -51,22 +57,33 @@ export async function isRefreshTokenValid(
   userId: string,
   jti: string,
 ): Promise<boolean> {
-  if (redis)
-    return (await redis.get(`focura:refresh:${userId}:${jti}`)) !== null;
+  if (redis) return (await redis.get(refreshTokenKey(userId, jti))) !== null;
   return devRefreshTokens.get(userId) === jti;
 }
 export async function revokeRefreshToken(
   userId: string,
   jti: string,
 ): Promise<void> {
-  if (redis) await redis.del(`focura:refresh:${userId}:${jti}`);
+  if (redis) {
+    const tokenKey = refreshTokenKey(userId, jti);
+    await redis.del(tokenKey);
+    await redis.srem(refreshIndexKey(userId), tokenKey);
+  }
   else if (devRefreshTokens.get(userId) === jti)
     devRefreshTokens.delete(userId);
 }
 export async function revokeAllRefreshTokens(userId: string): Promise<void> {
   if (redis) {
-    const keys = await redis.keys(`focura:refresh:${userId}:*`);
+    const idxKey = refreshIndexKey(userId);
+    let keys = await redis.smembers<string[]>(idxKey);
+
+    // Legacy fallback for tokens created before refresh index rollout.
+    if (keys.length === 0) {
+      keys = await redis.keys(`focura:refresh:${userId}:*`);
+    }
+
     if (keys.length > 0) await redis.del(...keys);
+    await redis.del(idxKey);
   } else devRefreshTokens.delete(userId);
 }
 export async function rotateRefreshToken(
@@ -83,20 +100,23 @@ export async function rotateRefreshToken(
     return true;
   }
 
-  const oldKey = `focura:refresh:${userId}:${oldJti}`;
-  const newKey = `focura:refresh:${userId}:${newJti}`;
+  const oldKey = refreshTokenKey(userId, oldJti);
+  const newKey = refreshTokenKey(userId, newJti);
+  const indexKey = refreshIndexKey(userId);
 
   const result = await redis.eval(
     `
     if redis.call("EXISTS", KEYS[1]) == 1 then
       redis.call("DEL", KEYS[1])
       redis.call("SETEX", KEYS[2], ARGV[1], ARGV[2])
+      redis.call("SREM", KEYS[3], KEYS[1])
+      redis.call("SADD", KEYS[3], KEYS[2])
       return 1
     else
       return 0
     end
     `,
-    [oldKey, newKey],
+    [oldKey, newKey, indexKey],
     [
       expiresInSeconds.toString(),
       JSON.stringify({ jti: newJti, createdAt: Date.now() }),
