@@ -52,7 +52,7 @@ export const createAnnouncement = async (req: AuthRequest, res: Response) => {
         void prisma.activity.create({
           data: {
             action:      'CREATED',
-            entityType:  'WORKSPACE',
+            entityType:  'ANNOUNCEMENT',
             entityId:    announcement.id,
             userId:      req.user!.id,
             workspaceId: wsId,
@@ -133,6 +133,25 @@ export const getAnnouncement = async (req: AuthRequest, res: Response) => {
   }
 };
 
+
+export const getProjectAnnouncements = async (req: AuthRequest, res: Response) => {
+  try {
+    const { workspaceId, projectId } = req.params;
+    const query = listAnnouncementsSchema.parse(req.query);
+
+    const result = await AnnouncementService.getMany({
+      workspaceId,
+      projectId,   // scoped to this project
+      userId: req.user!.id,
+      ...query,
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    handleError(res, 'fetch project announcements', error);
+  }
+};
+
 export const deleteAnnouncement = async (req: AuthRequest, res: Response) => {
   try {
     await AnnouncementService.delete(
@@ -142,7 +161,7 @@ export const deleteAnnouncement = async (req: AuthRequest, res: Response) => {
         void prisma.activity.create({
           data: {
             action:      'DELETED',
-            entityType:  'WORKSPACE',
+            entityType:  'ANNOUNCEMENT',
             entityId:    announcement.id,
             userId:      req.user!.id,
             workspaceId,

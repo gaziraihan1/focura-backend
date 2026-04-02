@@ -6,6 +6,7 @@ export const createAnnouncementSchema = z.object({
   visibility: z.enum(['PUBLIC', 'PRIVATE']).default('PUBLIC'),
   isPinned:   z.boolean().optional().default(false),
   targetIds:  z.array(z.string()).optional().default([]),
+  projectId:  z.string().optional().nullable(),   // ← new
 });
 
 export const updateAnnouncementSchema = z.object({
@@ -17,6 +18,7 @@ export const updateAnnouncementSchema = z.object({
 export const listAnnouncementsSchema = z.object({
   visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   isPinned:   z.coerce.boolean().optional(),
+  projectId:  z.string().optional(),   // ← new
   page:       z.coerce.number().int().min(1).default(1),
   pageSize:   z.coerce.number().int().min(1).max(100).default(10),
 });

@@ -16,6 +16,7 @@ import {
   isRefreshTokenValid,
 } from "../lib/auth/tokenRevocation.js";
 import { auditLog } from "../lib/auth/auditLog.js";
+import { redis } from "../lib/redis.js";
 
 const router = Router();
 const getIp = (req: any) =>
@@ -37,6 +38,8 @@ function verifyExchangeProof(payload: string, signature: string): boolean {
     return false;
   }
 }
+
+
 
 router.post("/exchange", async (req, res) => {
   const ip = getIp(req);
@@ -116,6 +119,19 @@ router.post("/exchange", async (req, res) => {
       });
     }
 
+    const idempotencyKey = `focura:exchange:lock:${sessionId}`;
+    if(redis) {
+      const cached = await redis.get<string>(idempotencyKey);
+      if(cached) {
+        auditLog("EXCHANGE_SUCCESS", {
+          userId: user.id, email: user.email, ip, sessionId,
+          meta: { idempotencyKey: true }
+        });
+        return res.json({success:true, ...JSON.parse(cached) });
+      }
+    }
+    
+
     if (!user.emailVerified) {
       await prisma.user.update({
         where: { id: user.id },
@@ -135,6 +151,14 @@ router.post("/exchange", async (req, res) => {
       extractJti(tokens.refreshToken),
       parseExpiry(REFRESH_TOKEN_EXPIRY) / 1000,
     );
+    if(redis) {
+      await redis.setex(idempotencyKey, 90, JSON.stringify({
+        accessToken:       tokens.accessToken,
+        refreshToken:      tokens.refreshToken,
+        accessTokenExpiry: tokens.accessTokenExpiry,
+        refreshTokenExpiry:tokens.refreshTokenExpiry
+      }))
+    }
 
     auditLog("EXCHANGE_SUCCESS", {
       userId: user.id,

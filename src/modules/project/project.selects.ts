@@ -47,7 +47,7 @@ export const projectDetailInclude = {
     },
     orderBy: { createdAt: 'desc' as const },
   },
-  _count: { select: { tasks: true, members: true } },
+  _count: { select: { tasks: true, members: true, announcement: true } },
 } as const;
 
 export const projectWorkspaceListSelect = {

@@ -1,4 +1,3 @@
-
 import { prisma } from '../../index.js';
 import { NotFoundError } from './project.types.js';
 import {
@@ -102,6 +101,9 @@ export const ProjectQuery = {
     Promise.resolve(calculateProjectStats(project)),
     ProjectAccess.isProjectAdmin(userId, project)
   ])
-  return {...project, stats, isAdmin};
+  return {...project, isAdmin, stats: {
+    ...stats,
+    totalAnnouncement: project._count.announcement
+  }};
 },
 };

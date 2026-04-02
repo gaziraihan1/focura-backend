@@ -11,6 +11,7 @@ export interface CreateAnnouncementInput {
   isPinned?:   boolean;
   targetIds?:  string[];   // userIds for PRIVATE visibility
   workspaceId: string;
+  projectId?:   string | null;
   createdById: string;
 }
 
@@ -23,6 +24,7 @@ export interface UpdateAnnouncementInput {
 export interface AnnouncementFilterParams {
   workspaceId:  string;
   userId:       string;
+  projectId?:   string | null;
   visibility?:  AnnouncementVisibility;
   isPinned?:    boolean;
   page?:        number;
@@ -49,6 +51,11 @@ export interface AnnouncementResult {
   createdAt:   Date;
   updatedAt:   Date;
   workspaceId: string;
+  project:    {
+    id:   string;
+    name: string;
+  }
+  projectId:   string | null;
   createdById: string;
   createdBy: {
     id:    string;

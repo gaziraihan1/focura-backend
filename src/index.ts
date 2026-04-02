@@ -24,9 +24,12 @@ import { announcementRouter } from './modules/announcement/index.js';
 import { meetingRoutes } from './modules/meeting/index.js';
 import webhookRouter from './payment/webhook.router.js';
 import { billingRouter } from '../src/modules/billing/index.js';
+import { featureRouter } from './modules/feature/index.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
+import { projectAnnouncementRouter, workspaceAnnouncementRouter } from './modules/announcement/index.js';
+import { adminRouter } from './admin/admin.routes.js';
 
 dotenv.config();
 
@@ -138,6 +141,8 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
 });
 
 app.use('/api/notifications', notificationRouter);
+app.use('/api/workspaces/:workspaceId/projects/:projectId/announcements', authenticate, projectAnnouncementRouter);
+app.use('/api/workspaces/:workspaceId/announcements', authenticate, workspaceAnnouncementRouter)
 app.use('/api/workspaces', authenticate, workspaceRouter);
 app.use('/api/workspaces/:workspaceId/billing', authenticate, billingRouter);
 app.use('/api/announcements', authenticate, announcementRouter)
@@ -156,6 +161,8 @@ app.use('/api/file-management', authenticate, fileManagementRouter);
 app.use('/api/auth', logoutRoutes)
 app.use('/api/workspace-usage', authenticate, workspaceUsageRouter)
 app.use('/api/meetings', authenticate, meetingRoutes)
+app.use('/api/features', authenticate, featureRouter)
+app.use('/api/admin', authenticate, adminRouter)
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);

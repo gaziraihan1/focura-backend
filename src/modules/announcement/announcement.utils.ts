@@ -1,3 +1,4 @@
+import { WorkspaceRole } from '../workspace/workspace.types.js';
 import type { AnnouncementResult } from './announcement.types.js';
 
 /**
@@ -6,6 +7,11 @@ import type { AnnouncementResult } from './announcement.types.js';
  */
 export function canManageAnnouncements(role?: string): boolean {
   return role === 'OWNER' || role === 'ADMIN';
+}
+
+export function canManageProjectAnnouncements(workspaceRole: WorkspaceRole, projectRole?: string | null) {
+  if(canManageAnnouncements(workspaceRole)) return true;
+  return projectRole === 'MANAGER' || projectRole === 'LEAD'
 }
 
 /**

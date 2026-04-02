@@ -1,1 +1,1 @@
-export { announcementRouter, workspaceAnnouncementRouter } from './announcement.routes.js'
+export { announcementRouter, workspaceAnnouncementRouter, projectAnnouncementRouter } from './announcement.routes.js'
