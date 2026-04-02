@@ -38,7 +38,7 @@ export const prisma = new PrismaClient({
 });
 
 const app: Application = express();
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 5000;
 const isProd = process.env.NODE_ENV === 'production';
 
 const allowedOrigins = [
