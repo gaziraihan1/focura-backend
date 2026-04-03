@@ -14,6 +14,11 @@ let privateKey: string;
 let publicKey: string;
 
 try {
+  console.log("KEY ENV CHECK:", {
+  hasPrivate: !!process.env.JWT_PRIVATE_KEY,
+  hasPublic: !!process.env.JWT_PUBLIC_KEY,
+  privateSample: process.env.JWT_PRIVATE_KEY?.slice(0, 20),
+});
   if (process.env.JWT_PRIVATE_KEY && process.env.JWT_PUBLIC_KEY) {
     privateKey = Buffer.from(process.env.JWT_PRIVATE_KEY, "base64").toString(
       "utf-8",

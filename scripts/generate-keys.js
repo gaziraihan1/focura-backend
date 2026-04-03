@@ -14,10 +14,27 @@ const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", {
 
 fs.writeFileSync(path.join(keysDir, "private.pem"), privateKey, { mode: 0o600 });
 fs.writeFileSync(path.join(keysDir, "public.pem"),  publicKey);
-fs.writeFileSync(path.join(keysDir, ".gitignore"), "private.pem\n*.pem\n!public.pem\n");
+fs.writeFileSync(path.join(keysDir, ".gitignore"), "*.pem\n");
 
-console.log("✅ Keys generated in backend/keys/");
-console.log("⚠️  Add to backend .env:");
-console.log("    JWT_PRIVATE_KEY_PATH=./keys/private.pem");
-console.log("    JWT_PUBLIC_KEY_PATH=./keys/public.pem");
-console.log("⚠️  Delete keys/ from frontend — backend owns the keys now.");
+const privateKeyB64 = Buffer.from(privateKey).toString("base64");
+const publicKeyB64  = Buffer.from(publicKey).toString("base64");
+
+// Write directly into .env — no copy-paste errors
+const envPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".env");
+let env = fs.readFileSync(envPath, "utf-8");
+
+// Replace or append JWT keys
+const updateEnv = (content, key, value) => {
+  const regex = new RegExp(`^${key}=.*$`, "m");
+  return regex.test(content)
+    ? content.replace(regex, `${key}=${value}`)
+    : content + `\n${key}=${value}`;
+};
+
+env = updateEnv(env, "JWT_PRIVATE_KEY", privateKeyB64);
+env = updateEnv(env, "JWT_PUBLIC_KEY",  publicKeyB64);
+
+fs.writeFileSync(envPath, env);
+
+console.log("✅ Keys generated and written directly to .env");
+console.log("✅ PEM files saved to keys/ for development use");
