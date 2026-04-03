@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis";
+import { redis } from "./redis.js";
 
 export interface RateLimitResult {
   success: boolean;
@@ -12,10 +13,7 @@ const USER_TIER_LIMITS = { free: 60, pro: 300, enterprise: 1000 } as const;
 class RedisRateLimiter {
   private redis: Redis;
   constructor() {
-    this.redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
+    this.redis = redis
   }
   async limit(key: string, customLimit = 60): Promise<RateLimitResult> {
     const now = Date.now(),

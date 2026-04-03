@@ -10,6 +10,7 @@ export function getRedisClient(): Redis {
     retryStrategy: (times: number) => Math.min(times * 100, 3000),
     enableReadyCheck: true,
     lazyConnect: false,
+    tls: process.env.REDIS_URL?.startsWith("rediss://") ? {} : undefined,
   });
 
   client.on("error", (err: Error) => console.error("[Redis] error:", err));
