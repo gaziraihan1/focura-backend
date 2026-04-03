@@ -18,8 +18,8 @@ export interface AuthRequest extends Request {
 let publicKey: string;
 
 try {
-  if (process.env.JWT_PUBLIC_KEY_PATH) {
-    publicKey = Buffer.from(process.env.JWT_PUBLIC_KEY_PATH, "base64").toString("utf-8");
+  if (process.env.JWT_PUBLIC_KEY) {
+    publicKey = Buffer.from(process.env.JWT_PUBLIC_KEY, "base64").toString("utf-8");
   } else {
     const keysDir = path.join(process.cwd(), "..", "keys");
     publicKey = fs.readFileSync(
