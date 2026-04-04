@@ -9,30 +9,63 @@ import {
   rollbackPersonalQuota,
   rollbackWorkspaceQuota,
 } from "./task.quota.service.js";
+import { redis } from "../../lib/redis.js";
 
 // ─── Plan resolution ──────────────────────────────────────────────────────────
 // Adapt these two functions to match however your DB stores plan info.
 
 async function resolveUserPlan(userId: string): Promise<"FREE" | "PRO"> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { plan: true } as any,
+  const cacheKey = `plan:user:${userId}`;
+  
+  const cached = await redis.get<string>(cacheKey);
+  if (cached) return cached === 'PRO' ? 'PRO' : 'FREE';
+
+  const bestSub = await prisma.subscription.findFirst({
+    where: {
+      workspace: { ownerId: userId },
+      status: { in: ['ACTIVE', 'TRIALING'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      plan: { select: { name: true } },
+    },
   });
-  return (user as any)?.plan === "PRO" ? "PRO" : "FREE";
+
+  const planName = bestSub?.plan.name ?? 'FREE';
+  // Cache for 10 minutes — invalidate on plan change webhook
+  await redis.set(cacheKey, planName, { ex: 600 });
+
+  return planName === 'PRO' ? 'PRO' : 'FREE';
 }
 
 async function resolveWorkspacePlan(
   workspaceId: string,
 ): Promise<"FREE" | "PRO" | "BUSINESS" | "ENTERPRISE"> {
+  const cacheKey = `plan:workspace:${workspaceId}`;
+
+  const cached = await redis.get<string>(cacheKey);
+  if (cached) {
+    if (cached === 'ENTERPRISE') return 'ENTERPRISE';
+    if (cached === 'BUSINESS')   return 'BUSINESS';
+    if (cached === 'PRO')        return 'PRO';
+    return 'FREE';
+  }
+
+  // Read from Workspace.plan enum directly — no relation needed
   const ws = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { plan: true } as any,
+    where:  { id: workspaceId },
+    select: { plan: true },
   });
-  const p = (ws as any)?.plan as string | undefined;
-  if (p === "ENTERPRISE") return "ENTERPRISE";
-  if (p === "BUSINESS") return "BUSINESS";
-  if (p === "PRO") return "PRO";
-  return "FREE";
+
+  const planName = ws?.plan ?? 'FREE';
+
+  // Cache for 10 minutes — invalidated by Stripe webhook on plan change
+  await redis.set(cacheKey, planName, { ex: 600 });
+
+  if (planName === 'ENTERPRISE') return 'ENTERPRISE';
+  if (planName === 'BUSINESS')   return 'BUSINESS';
+  if (planName === 'PRO')        return 'PRO';
+  return 'FREE';
 }
 
 // ─── Callback types ───────────────────────────────────────────────────────────

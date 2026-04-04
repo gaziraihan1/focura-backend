@@ -19,7 +19,12 @@ import { redis } from "../lib/redis.js";
 
 const router = Router();
 const devRefreshResponseCache = new Map<string, string>();
-const REFRESH_DEDUPE_TTL_SECONDS = 10;
+const REFRESH_DEDUPE_TTL_SECONDS = 30;
+import {
+  acquireRefreshLock,
+  releaseRefreshLock,
+  isRefreshLocked,
+} from "../lib/auth/refreshLock.js";
 const getIp = (req: any) =>
   (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
   req.socket.remoteAddress ||
@@ -60,8 +65,6 @@ function verifyExchangeProof(payload: string, signature: string): boolean {
     return false;
   }
 }
-
-
 
 router.post("/exchange", async (req, res) => {
   const ip = getIp(req);
@@ -142,17 +145,19 @@ router.post("/exchange", async (req, res) => {
     }
 
     const idempotencyKey = `focura:exchange:lock:${sessionId}`;
-    if(redis) {
+    if (redis) {
       const cached = await redis.get<string>(idempotencyKey);
-      if(cached) {
+      if (cached) {
         auditLog("EXCHANGE_SUCCESS", {
-          userId: user.id, email: user.email, ip, sessionId,
-          meta: { idempotencyKey: true }
+          userId: user.id,
+          email: user.email,
+          ip,
+          sessionId,
+          meta: { idempotencyKey: true },
         });
-        return res.json({success:true, ...JSON.parse(cached) });
+        return res.json({ success: true, ...JSON.parse(cached) });
       }
     }
-    
 
     if (!user.emailVerified) {
       await prisma.user.update({
@@ -173,13 +178,17 @@ router.post("/exchange", async (req, res) => {
       extractJti(tokens.refreshToken),
       parseExpiry(REFRESH_TOKEN_EXPIRY) / 1000,
     );
-    if(redis) {
-      await redis.setex(idempotencyKey, 90, JSON.stringify({
-        accessToken:       tokens.accessToken,
-        refreshToken:      tokens.refreshToken,
-        accessTokenExpiry: tokens.accessTokenExpiry,
-        refreshTokenExpiry:tokens.refreshTokenExpiry
-      }))
+    if (redis) {
+      await redis.setex(
+        idempotencyKey,
+        90,
+        JSON.stringify({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          accessTokenExpiry: tokens.accessTokenExpiry,
+          refreshTokenExpiry: tokens.refreshTokenExpiry,
+        }),
+      );
     }
 
     auditLog("EXCHANGE_SUCCESS", {
@@ -218,67 +227,91 @@ router.post("/refresh", async (req, res) => {
     }
 
     const decoded = verifyToken(refreshToken, "refresh");
+    const sessionId = decoded.sessionId!;
     const refreshReplayCacheKey = `focura:refresh:result:${decoded.id}:${decoded.jti}`;
-    const cachedResponse = await getCachedRefreshResponse(refreshReplayCacheKey);
+    const acquired = await acquireRefreshLock(sessionId);
+    if (!acquired) {
+      // In-flight refresh: extended cache check
+      for (let i = 0; i < 10; i++) {
+        await sleep(30);
+        const cached = await getCachedRefreshResponse(refreshReplayCacheKey);
+        if (cached) return res.json(JSON.parse(cached));
+      }
+      return res.status(429).json({
+        success: false,
+        message: "Refresh in progress, please retry",
+        code: "REFRESH_IN_PROGRESS",
+        retryAfter: 1,
+      });
+    }
+    const cachedResponse = await getCachedRefreshResponse(
+      refreshReplayCacheKey,
+    );
     if (cachedResponse) {
       return res.json(JSON.parse(cachedResponse));
     }
 
-    const tokens = createTokenPair({
-      id: decoded.id,
-      email: decoded.email,
-      role: decoded.role,
-      sessionId: decoded.sessionId,
-    });
-    const rotated = await rotateRefreshToken(
-      decoded.id,
-      decoded.jti,
-      extractJti(tokens.refreshToken),
-      parseExpiry(REFRESH_TOKEN_EXPIRY) / 1000,
-    );
+    try {
 
-    if (!rotated) {
-      for (let i = 0; i < 3; i++) {
-        await sleep(75);
-        const duplicateResponse =
-          await getCachedRefreshResponse(refreshReplayCacheKey);
-        if (duplicateResponse) {
-          return res.json(JSON.parse(duplicateResponse));
+      const tokens = createTokenPair({
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        sessionId: decoded.sessionId,
+      });
+      const rotated = await rotateRefreshToken(
+        decoded.id,
+        decoded.jti,
+        extractJti(tokens.refreshToken),
+        parseExpiry(REFRESH_TOKEN_EXPIRY) / 1000,
+      );
+  
+      if (!rotated) {
+        for (let i = 0; i < 3; i++) {
+          await sleep(75);
+          const duplicateResponse = await getCachedRefreshResponse(
+            refreshReplayCacheKey,
+          );
+          if (duplicateResponse) {
+            return res.json(JSON.parse(duplicateResponse));
+          }
         }
+  
+        auditLog("TOKEN_REPLAY_DETECTED", {
+          userId: decoded.id,
+          jti: decoded.jti,
+          ip,
+          reason: "Refresh token already used or revoked",
+        });
+        return res.status(401).json({
+          success: false,
+          message: "Refresh token invalid or already used",
+          code: "TOKEN_INVALID",
+        });
       }
-
-      auditLog("TOKEN_REPLAY_DETECTED", {
+  
+      const responsePayload = {
+        success: true,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        accessTokenExpiry: tokens.accessTokenExpiry,
+        refreshTokenExpiry: tokens.refreshTokenExpiry,
+      };
+      await cacheRefreshResponse(
+        refreshReplayCacheKey,
+        JSON.stringify(responsePayload),
+      );
+  
+      auditLog("TOKEN_REFRESHED", {
         userId: decoded.id,
-        jti: decoded.jti,
         ip,
-        reason: "Refresh token already used or revoked",
+        sessionId: decoded.sessionId,
       });
-      return res.status(401).json({
-        success: false,
-        message: "Refresh token invalid or already used",
-        code: "TOKEN_INVALID",
-      });
+      return res.json(responsePayload);
+    } finally {
+      await releaseRefreshLock(sessionId)
     }
 
-    const responsePayload = {
-      success: true,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      accessTokenExpiry: tokens.accessTokenExpiry,
-      refreshTokenExpiry: tokens.refreshTokenExpiry,
-    };
-    await cacheRefreshResponse(
-      refreshReplayCacheKey,
-      JSON.stringify(responsePayload),
-    );
-
-    auditLog("TOKEN_REFRESHED", {
-      userId: decoded.id,
-      ip,
-      sessionId: decoded.sessionId,
-    });
-
-    return res.json(responsePayload);
   } catch (err: any) {
     if (err.name === "TokenExpiredError") {
       return res.status(401).json({
@@ -312,8 +345,7 @@ router.post("/logout", async (req, res) => {
       tokenJti = decoded.jti;
       sessionId = decoded.sessionId;
       email = decoded.email;
-    } catch {
-    }
+    } catch {}
   }
 
   try {
