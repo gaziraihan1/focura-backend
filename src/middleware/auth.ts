@@ -113,7 +113,6 @@ export const authenticate = async (
       where: { id: decoded.sub },
       select: { id: true, email: true, name: true, role: true, emailVerified: true, bannedAt: true, banReason: true },
     });
-    console.log(user)
 
     if (!user) {
       return res.status(401).json({

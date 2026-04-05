@@ -27,5 +27,5 @@ adminRouter.get('/activity',               getAdminActivity);
 
 adminRouter.patch('/users/:id/ban',              banUser);
 adminRouter.patch('/users/:id/unban',            unbanUser);
-adminRouter.delete('/workspaces/:slug',          deleteWorkspace);
+adminRouter.post('/workspaces/:slug',          deleteWorkspace);
 adminRouter.patch('/workspaces/:slug/restore',   restoreWorkspace);

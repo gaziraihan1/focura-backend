@@ -1,168 +1,227 @@
-import cron from 'node-cron';
-import { prisma } from '../../index.js';
-import { notifyUser } from './notification.helpers.js';
-import { NotificationMutation } from './notification.mutation.js';
+import cron        from 'node-cron';
+import { prisma }  from '../../index.js';
+import { redis }   from '../../lib/redis.js';
+import { notifyUser }            from './notification.helpers.js';
+import { NotificationMutation }  from './notification.mutation.js';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const BATCH_SIZE = 100;
 
 const REMINDERS = [
-  { label: '6h', ms: 6 * 60 * 60 * 1000 },
-  { label: '3h', ms: 3 * 60 * 60 * 1000 },
-  { label: '30m', ms: 30 * 60 * 1000 },
-];
+  { label: '6h',  ms: 6  * 60 * 60 * 1000 },
+  { label: '3h',  ms: 3  * 60 * 60 * 1000 },
+  { label: '30m', ms: 30 * 60 * 1000       },
+] as const;
 
-const OVERDUE = [
-  { label: '1h', ms: 1 * 60 * 60 * 1000 },
-  { label: '6h', ms: 6 * 60 * 60 * 1000 },
+const OVERDUE_MARKS = [
+  { label: '1h',  ms: 1  * 60 * 60 * 1000 },
+  { label: '6h',  ms: 6  * 60 * 60 * 1000 },
   { label: '24h', ms: 24 * 60 * 60 * 1000 },
-];
+] as const;
 
+// Cron runs every 5 min — window must match to avoid double-fire
+const WINDOW_MS = 5 * 60 * 1000;
 
-const sentNotifications = new Map<string, Set<string>>();
+// Redis TTL slightly over 25h so keys survive a full day + cron drift
+const NOTIF_TTL_S = 25 * 60 * 60;
 
-function getNotificationKey(taskId: string, userId: string, type: string, label: string): string {
-  return `${taskId}-${userId}-${type}-${label}`;
+// ─── Redis dedup helpers ──────────────────────────────────────────────────────
+
+function notifKey(
+  taskId: string,
+  userId: string,
+  type:   string,
+  label:  string,
+): string {
+  return `notif:sent:${taskId}:${userId}:${type}:${label}`;
 }
 
-function wasNotificationSent(key: string): boolean {
-  const today = new Date().toDateString();
-  const todayNotifications = sentNotifications.get(today);
-  return todayNotifications?.has(key) || false;
+async function wasSent(key: string): Promise<boolean> {
+  const val = await redis.get(key);
+  return !!val;
 }
 
-function markNotificationSent(key: string): void {
-  const today = new Date().toDateString();
-  if (!sentNotifications.has(today)) {
-    sentNotifications.set(today, new Set());
-  }
-  sentNotifications.get(today)!.add(key);
+async function markSent(key: string): Promise<void> {
+  await redis.set(key, '1', { ex: NOTIF_TTL_S });
 }
 
-function cleanupOldTracking(): void {
-  const today = new Date().toDateString();
-  const keysToDelete: string[] = [];
-
-  sentNotifications.forEach((_, key) => {
-    if (key !== today) {
-      keysToDelete.push(key);
-    }
-  });
-
-  keysToDelete.forEach((key) => sentNotifications.delete(key));
-}
-
-export function startTaskReminderCron() {
-  cron.schedule('*/5 * * * *', async () => {
-    try {
-      console.log('🔔 Running task reminder cron job...');
-
-      const tasks = await prisma.task.findMany({
-        where: {
-          dueDate: { not: null },
-          status: { notIn: ['COMPLETED', 'CANCELLED'] },
-        },
-        include: {
-          assignees: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                  notifications: true,
-                },
-              },
+async function fetchTaskPage(cursor?: string) {
+  return prisma.task.findMany({
+    where: {
+      dueDate: { not: null },
+      status:  { notIn: ['COMPLETED', 'CANCELLED'] },
+    },
+    select: {
+      id:       true,
+      title:    true,
+      dueDate:  true,
+      assignees: {
+        select: {
+          userId: true,
+          user: {
+            select: {
+              notifications: true,
             },
           },
         },
-      });
-
-      const now = new Date().getTime();
-
-      for (const task of tasks) {
-        const due = new Date(task.dueDate!).getTime();
-
-        if (!task.assignees || task.assignees.length === 0) continue;
-
-        for (const r of REMINDERS) {
-          const timeUntilDue = due - now;
-
-          if (timeUntilDue < r.ms && timeUntilDue > r.ms - 5 * 60 * 1000) {
-            for (const assignee of task.assignees) {
-              if (!assignee.user.notifications) continue;
-
-              const notifKey = getNotificationKey(task.id, assignee.userId, 'DUE_SOON', r.label);
-
-              if (wasNotificationSent(notifKey)) continue;
-
-              await notifyUser({
-                userId: assignee.userId,
-                type: 'TASK_DUE_SOON',
-                title: 'Task Due Soon',
-                message: `"${task.title}" is due in ${r.label}`,
-                actionUrl: `/dashboard/tasks/${task.id}`,
-              });
-
-              markNotificationSent(notifKey);
-              console.log(`  ✅ Sent due soon reminder (${r.label}) for task ${task.id} to user ${assignee.userId}`);
-            }
-          }
-        }
-
-        for (const o of OVERDUE) {
-          const timeOverdue = now - due;
-
-          if (timeOverdue > o.ms && timeOverdue < o.ms + 5 * 60 * 1000) {
-            for (const assignee of task.assignees) {
-              if (!assignee.user.notifications) continue;
-
-              const notifKey = getNotificationKey(task.id, assignee.userId, 'OVERDUE', o.label);
-
-              if (wasNotificationSent(notifKey)) continue;
-
-              await notifyUser({
-                userId: assignee.userId,
-                type: 'TASK_OVERDUE',
-                title: 'Task Overdue',
-                message: `"${task.title}" is overdue by ${o.label}`,
-                actionUrl: `/dashboard/tasks/${task.id}`,
-              });
-
-              markNotificationSent(notifKey);
-              console.log(`  ✅ Sent overdue reminder (${o.label}) for task ${task.id} to user ${assignee.userId}`);
-            }
-          }
-        }
-      }
-
-      console.log('✅ Task reminder cron job completed');
-    } catch (error) {
-      console.error('❌ Error in task reminder cron job:', error);
-    }
+      },
+    },
+    orderBy: { id: 'asc' },
+    take:    BATCH_SIZE,
+    ...(cursor && { skip: 1, cursor: { id: cursor } }),
   });
-
-  console.log('✅ Task reminder cron job started (runs every 5 minutes)');
 }
 
-export function startNotificationCleanupCron() {
+
+interface PendingNotif {
+  key:      string;
+  userId:   string;
+  type:     'TASK_DUE_SOON' | 'TASK_OVERDUE';
+  title:    string;
+  message:  string;
+  actionUrl:string;
+}
+
+function buildPendingNotifs(
+  task:  { id: string; title: string; dueDate: Date | null },
+  assignees: { userId: string; user: { notifications: boolean } }[],
+  now:   number,
+): PendingNotif[] {
+  const due      = new Date(task.dueDate!).getTime();
+  const pending: PendingNotif[] = [];
+  for (const r of REMINDERS) {
+    const timeUntilDue = due - now;
+    if (timeUntilDue >= r.ms - WINDOW_MS && timeUntilDue < r.ms) {
+      for (const a of assignees) {
+        if (!a.user.notifications) continue;
+        pending.push({
+          key:       notifKey(task.id, a.userId, 'DUE_SOON', r.label),
+          userId:    a.userId,
+          type:      'TASK_DUE_SOON',
+          title:     'Task Due Soon',
+          message:   `"${task.title}" is due in ${r.label}`,
+          actionUrl: `/dashboard/tasks/${task.id}`,
+        });
+      }
+    }
+  }
+
+  for (const o of OVERDUE_MARKS) {
+    const timeOverdue = now - due;
+    if (timeOverdue >= o.ms && timeOverdue < o.ms + WINDOW_MS) {
+      for (const a of assignees) {
+        if (!a.user.notifications) continue;
+        pending.push({
+          key:       notifKey(task.id, a.userId, 'OVERDUE', o.label),
+          userId:    a.userId,
+          type:      'TASK_OVERDUE',
+          title:     'Task Overdue',
+          message:   `"${task.title}" is overdue by ${o.label}`,
+          actionUrl: `/dashboard/tasks/${task.id}`,
+        });
+      }
+    }
+  }
+
+  return pending;
+}
+
+
+async function processPendingNotifs(pending: PendingNotif[]): Promise<number> {
+  if (pending.length === 0) return 0;
+
+  const sentFlags = await Promise.all(pending.map((n) => wasSent(n.key)));
+
+  const toSend = pending.filter((_, i) => !sentFlags[i]);
+  if (toSend.length === 0) return 0;
+
+  const results = await Promise.allSettled(
+    toSend.map(async (n) => {
+      await notifyUser({
+        userId:    n.userId,
+        type:      n.type,
+        title:     n.title,
+        message:   n.message,
+        actionUrl: n.actionUrl,
+      });
+      await markSent(n.key);
+      console.log(`  ✅ [${n.type}] task=${n.userId} user=${n.userId}`);
+    }),
+  );
+
+  const failed = results.filter((r) => r.status === 'rejected');
+  if (failed.length > 0) {
+    failed.forEach((r) => {
+      if (r.status === 'rejected') {
+        console.error('  ⚠️  Notification failed:', r.reason);
+      }
+    });
+  }
+
+  return toSend.length - failed.length;
+}
+
+
+async function runTaskReminderCron(): Promise<void> {
+  console.log('🔔 Running task reminder cron job…');
+
+  const now   = Date.now();
+  let   total = 0;
+  let   sent  = 0;
+  let   cursor: string | undefined;
+
+  while (true) {
+    const tasks = await fetchTaskPage(cursor);
+    if (tasks.length === 0) break;
+
+    total += tasks.length;
+
+    // Build all pending notifs for this batch
+    const pending: PendingNotif[] = [];
+    for (const task of tasks) {
+      if (!task.assignees.length) continue;
+      pending.push(...buildPendingNotifs(task, task.assignees, now));
+    }
+
+    sent += await processPendingNotifs(pending);
+
+    if (tasks.length < BATCH_SIZE) break;
+    cursor = tasks[tasks.length - 1].id;
+  }
+
+  console.log(
+    `✅ Task reminder cron done — ${total} tasks scanned, ${sent} notifications sent`,
+  );
+}
+
+
+export function startTaskReminderCron(): void {
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      await runTaskReminderCron();
+    } catch (error) {
+      console.error('❌ Task reminder cron failed:', error);
+    }
+  });
+  console.log('✅ Task reminder cron started (every 5 min)');
+}
+
+export function startNotificationCleanupCron(): void {
   cron.schedule('0 3 * * *', async () => {
     try {
-      console.log('🧹 Running notification cleanup cron job...');
-
-      const result = await NotificationMutation.deleteOldReadNotifications(30);
-
-      console.log(`  ✅ Cleaned up ${result.count} old read notifications`);
-
-      cleanupOldTracking();
-      console.log('  ✅ Cleaned up old notification tracking data');
+      console.log('🧹 Running notification cleanup…');
+      const { count } = await NotificationMutation.deleteOldReadNotifications(30);
+      console.log(`  ✅ Deleted ${count} old read notifications`);
+      // Redis keys clean themselves up via TTL — no manual sweep needed
     } catch (error) {
-      console.error('❌ Error in notification cleanup cron job:', error);
+      console.error('❌ Notification cleanup cron failed:', error);
     }
   });
-
-  console.log('✅ Notification cleanup cron job started (runs daily at 3 AM)');
+  console.log('✅ Notification cleanup cron started (daily at 3 AM)');
 }
 
-export function initNotificationCrons() {
+export function initNotificationCrons(): void {
   startTaskReminderCron();
   startNotificationCleanupCron();
 }
