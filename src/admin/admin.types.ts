@@ -298,3 +298,17 @@ export interface PaginatedAdminResult<T> {
     hasPrev: boolean;
   };
 }
+
+export interface BanUserInput {
+  reason: string;
+}
+
+export interface DeleteWorkspaceInput {
+  reason?:   string;
+  hardDelete: boolean;
+}
+
+export interface AdminActionResult {
+  success: boolean;
+  message: string;
+}

@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth.js";
 import { AdminRepository } from "./admin.repository.js";
 import { isFocuraAdmin } from "../config/admin.config.js";
+import { sendWorkspaceDeletedEmail, sendBanEmail } from './admin.email.js';
+import { prisma } from "../index.js";
+import { notifyUser } from "../modules/notification/notification.helpers.js";
 
 const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -123,4 +126,169 @@ export const getAdminActivity = async (req: AuthRequest, res: Response) => {
   } catch (e) {
     handleError(res, "fetch activity", e);
   }
+};
+
+
+const banUserSchema = z.object({
+  reason: z.string().min(1, 'Reason is required').max(500),
+});
+
+const deleteWorkspaceSchema = z.object({
+  reason:     z.string().max(500).optional(),
+  hardDelete: z.boolean().default(false),
+});
+
+export const banUser = async (req: AuthRequest, res: Response) => {
+  if (!guardAdmin(req, res)) return;
+  try {
+    const { id }    = req.params;
+    const { reason } = banUserSchema.parse(req.body);
+
+    // Prevent banning another admin
+    if (isFocuraAdmin(id)) {
+      res.status(403).json({ success: false, message: 'Cannot ban another Focura admin' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where:  { id },
+      select: { id: true, name: true, email: true, bannedAt: true },
+    });
+    if (!user) {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
+    }
+    if (user.bannedAt) {
+      res.status(400).json({ success: false, message: 'User is already banned' });
+      return;
+    }
+
+    await AdminRepository.banUser(id, req.user!.id, reason);
+
+    // Fire-and-forget: email + in-app notification
+    void sendBanEmail({
+      toEmail: user.email,
+      toName:  user.name ?? 'User',
+      reason,
+    }).catch((e) => console.error('Ban email failed:', e));
+
+    res.json({ success: true, message: 'User banned successfully' });
+  } catch (e) { handleError(res, 'ban user', e); }
+};
+
+export const unbanUser = async (req: AuthRequest, res: Response) => {
+  if (!guardAdmin(req, res)) return;
+  try {
+    const { id } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where:  { id },
+      select: { bannedAt: true },
+    });
+    if (!user) {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
+    }
+    if (!user.bannedAt) {
+      res.status(400).json({ success: false, message: 'User is not banned' });
+      return;
+    }
+
+    await AdminRepository.unbanUser(id);
+    res.json({ success: true, message: 'User unbanned successfully' });
+  } catch (e) { handleError(res, 'unban user', e); }
+};
+
+export const deleteWorkspace = async (req: AuthRequest, res: Response) => {
+  if (!guardAdmin(req, res)) return;
+  try {
+    const { slug }                = req.params;
+    const { reason, hardDelete }  = deleteWorkspaceSchema.parse(req.body);
+
+    // Find workspace first to get owner for notification
+    const workspace = await prisma.workspace.findUnique({
+      where:  { slug },
+      select: {
+        id:    true,
+        name:  true,
+        owner: { select: { id: true, name: true, email: true } },
+        deletedAt: true,
+      },
+    });
+
+    if (!workspace) {
+      res.status(404).json({ success: false, message: 'Workspace not found' });
+      return;
+    }
+    if (workspace.deletedAt && !hardDelete) {
+      res.status(400).json({ success: false, message: 'Workspace is already soft-deleted. Use hardDelete to permanently remove.' });
+      return;
+    }
+
+    const ownerInfo = hardDelete
+      ? await AdminRepository.hardDeleteWorkspace(workspace.id)
+      : await AdminRepository.softDeleteWorkspace(workspace.id, req.user!.id, reason);
+
+    // In-app notification (only for soft delete — hard delete removes the user's data)
+    if (!hardDelete) {
+      void notifyUser({
+        userId:    workspace.owner.id,
+        senderId:  req.user!.id,
+        type:      'PROJECT_UPDATE',
+        title:     '⚠️ Workspace Suspended',
+        message:   `Your workspace "${workspace.name}" has been suspended by Focura admin.${reason ? ` Reason: ${reason}` : ''}`,
+        actionUrl: '/dashboard',
+      }).catch((e) => console.error('Workspace suspend notification failed:', e));
+    }
+
+    // Email notification — always
+    void sendWorkspaceDeletedEmail({
+      toEmail:       ownerInfo.ownerEmail,
+      toName:        ownerInfo.ownerName,
+      workspaceName: ownerInfo.workspaceName,
+      reason,
+      hardDelete,
+    }).catch((e) => console.error('Workspace delete email failed:', e));
+
+    res.json({
+      success: true,
+      message: hardDelete
+        ? 'Workspace permanently deleted'
+        : 'Workspace suspended (soft deleted)',
+    });
+  } catch (e) { handleError(res, 'delete workspace', e); }
+};
+
+export const restoreWorkspace = async (req: AuthRequest, res: Response) => {
+  if (!guardAdmin(req, res)) return;
+  try {
+    const { slug } = req.params;
+
+    const workspace = await prisma.workspace.findUnique({
+      where:  { slug },
+      select: { id: true, deletedAt: true, owner: { select: { id: true, name: true } } },
+    });
+
+    if (!workspace) {
+      res.status(404).json({ success: false, message: 'Workspace not found' });
+      return;
+    }
+    if (!workspace.deletedAt) {
+      res.status(400).json({ success: false, message: 'Workspace is not suspended' });
+      return;
+    }
+
+    await AdminRepository.restoreWorkspace(workspace.id);
+
+    void notifyUser({
+      userId:    workspace.owner.id,
+      senderId:  req.user!.id,
+      type:      'PROJECT_UPDATE',
+      title:     '✅ Workspace Restored',
+      message:   'Your workspace has been restored by Focura admin.',
+      actionUrl: '/dashboard',
+    }).catch((e) => console.error('Workspace restore notification failed:', e));
+
+    res.json({ success: true, message: 'Workspace restored successfully' });
+  } catch (e) { handleError(res, 'restore workspace', e); }
 };

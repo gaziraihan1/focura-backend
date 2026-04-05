@@ -8,6 +8,10 @@ import {
   getAdminProjects,
   getAdminBilling,
   getAdminActivity,
+  banUser,
+  unbanUser,
+  deleteWorkspace,
+  restoreWorkspace,
 } from './admin.controller.js';
 
 export const adminRouter = Router();
@@ -20,3 +24,8 @@ adminRouter.get('/users/:id',              getAdminUserDetail);
 adminRouter.get('/projects',               getAdminProjects);
 adminRouter.get('/billing',                getAdminBilling);
 adminRouter.get('/activity',               getAdminActivity);
+
+adminRouter.patch('/users/:id/ban',              banUser);
+adminRouter.patch('/users/:id/unban',            unbanUser);
+adminRouter.delete('/workspaces/:slug',          deleteWorkspace);
+adminRouter.patch('/workspaces/:slug/restore',   restoreWorkspace);

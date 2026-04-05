@@ -111,8 +111,9 @@ export const authenticate = async (
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.sub },
-      select: { id: true, email: true, name: true, role: true, emailVerified: true },
+      select: { id: true, email: true, name: true, role: true, emailVerified: true, bannedAt: true, banReason: true },
     });
+    console.log(user)
 
     if (!user) {
       return res.status(401).json({
@@ -128,6 +129,15 @@ export const authenticate = async (
         message: "Please verify your email address",
         code: "EMAIL_NOT_VERIFIED",
       });
+    }
+    if (user.bannedAt) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended",
+        reason: user.banReason ?? undefined,
+        bannedAt: user.bannedAt,
+        code: "ACCOUNT_BANNED"
+      })
     }
 
     req.user = {

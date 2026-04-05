@@ -208,6 +208,7 @@ export const AdminRepository = {
         id: true, name: true, slug: true, plan: true, description: true,
         createdAt: true, updatedAt: true,
         maxMembers: true, maxStorage: true,
+        deletedAt: true, deletedById: true, deleteReason: true,
         owner: { select: { id: true, name: true, email: true, image: true } },
         subscription: {
           select: {
@@ -372,6 +373,7 @@ export const AdminRepository = {
         select: {
           id: true, name: true, email: true, image: true,
           role: true, bio: true, timezone: true,
+          bannedAt: true, bannedById: true, banReason: true,
           createdAt: true, lastLoginAt: true, lastProfileUpdateAt: true,
           // Workspaces they own
           ownedWorkspaces: {
@@ -721,4 +723,90 @@ export const AdminRepository = {
       pagination: buildPagination(page, pageSize, totalCount),
     };
   },
+  // Add to AdminRepository
+
+async banUser(
+  userId:    string,
+  adminId:   string,
+  reason:    string,
+): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      bannedAt:   new Date(),
+      banReason:  reason,
+      bannedById: adminId,
+    },
+  });
+},
+
+async unbanUser(userId: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      bannedAt:   null,
+      banReason:  null,
+      bannedById: null,
+    },
+  });
+},
+
+async softDeleteWorkspace(
+  workspaceId: string,
+  adminId:     string,
+  reason?:     string,
+): Promise<{ ownerEmail: string; ownerName: string; workspaceName: string }> {
+  const ws = await prisma.workspace.update({
+    where: { id: workspaceId },
+    data: {
+      deletedAt:    new Date(),
+      deletedById:  adminId,
+      deleteReason: reason ?? null,
+    },
+    select: {
+      name:  true,
+      owner: { select: { email: true, name: true, id: true } },
+    },
+  });
+
+  return {
+    ownerEmail:    ws.owner.email,
+    ownerName:     ws.owner.name  ?? 'User',
+    workspaceName: ws.name,
+  };
+},
+
+async hardDeleteWorkspace(
+  workspaceId: string,
+): Promise<{ ownerEmail: string; ownerName: string; workspaceName: string }> {
+  // Fetch before delete for notification
+  const ws = await prisma.workspace.findUnique({
+    where:  { id: workspaceId },
+    select: {
+      name:  true,
+      owner: { select: { id: true, email: true, name: true } },
+    },
+  });
+
+  if (!ws) throw new Error('NOT_FOUND: Workspace not found');
+
+  await prisma.workspace.delete({ where: { id: workspaceId } });
+
+  return {
+    ownerEmail:    ws.owner.email,
+    ownerName:     ws.owner.name  ?? 'User',
+    workspaceName: ws.name,
+  };
+},
+
+async restoreWorkspace(workspaceId: string): Promise<void> {
+  await prisma.workspace.update({
+    where: { id: workspaceId },
+    data: {
+      deletedAt:    null,
+      deletedById:  null,
+      deleteReason: null,
+    },
+  });
+},
 };

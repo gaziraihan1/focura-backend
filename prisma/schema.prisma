@@ -175,6 +175,9 @@ model User {
   updatedAt              DateTime               @updatedAt
   lastLoginAt            DateTime?
   stripeCustomerId       String?                @unique
+  bannedAt               DateTime?
+  banReason              String?
+  bannedById             String?
   accounts               Account[]
   activities             Activity[]
   createdAnnouncements   Announcement[]         @relation("AnnouncementCreator")
@@ -227,6 +230,9 @@ model Workspace {
   maxStorage      Int                   @default(1024)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
+  deletedAt       DateTime?
+  deletedById     String?
+  deleteReason    String?
   ownerId         String
   activities      Activity[]
   announcements   Announcement[]
