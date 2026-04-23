@@ -8,7 +8,6 @@ on:
 
 jobs:
   test:
-    name: Run tests (Vitest + Prisma)
     runs-on: ubuntu-latest
 
     services:
@@ -21,18 +20,20 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres"
+          --health-cmd="pg_isready -U postgres -d focura_test"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5
+          --health-retries=10
 
     env:
       NODE_ENV: test
+      TZ: UTC
+
       DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
       DIRECT_URL: postgresql://postgres:test_password@localhost:5432/focura_test
 
-      JWT_PUBLIC_KEY: test
-      JWT_PRIVATE_KEY: test
+      JWT_PRIVATE_KEY_PATH: ./keys/private.pem
+      JWT_PUBLIC_KEY_PATH: ./keys/public.pem
 
       CLOUDINARY_CLOUD_NAME: test
       CLOUDINARY_API_KEY: test
@@ -40,6 +41,8 @@ jobs:
 
       STRIPE_SECRET_KEY: sk_test_fake
       STRIPE_WEBHOOK_SECRET: whsec_fake
+
+      REDIS_URL: redis://127.0.0.1:6379
 
     steps:
       - name: Checkout repository
@@ -54,10 +57,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npm run prisma:generate
+      - name: Generate test keys (JWT)
+        run: |
+          mkdir -p keys
+          openssl genrsa -out keys/private.pem 2048
+          openssl rsa -in keys/private.pem -pubout -out keys/public.pem
 
-      - name: Push Prisma schema
+      - name: Wait for Postgres
+        run: |
+          for i in {1..20}; do
+            pg_isready -h localhost -p 5432 -U postgres && break
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply Prisma schema
         run: npx prisma db push
 
       - name: Run unit tests
