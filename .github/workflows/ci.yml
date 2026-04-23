@@ -130,10 +130,6 @@ jobs:
           export $(grep -v '^#' .env.test | xargs)
           npx prisma migrate deploy
 
-      # ✅ Clean Redis to avoid test pollution
-      - name: Reset Redis
-        run: redis-cli FLUSHALL
-
       # ✅ Run tests (Vitest handles env internally)
       - name: Run tests
         run: npx vitest run --reporter=verbose
