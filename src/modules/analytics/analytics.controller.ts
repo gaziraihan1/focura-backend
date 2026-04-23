@@ -20,44 +20,48 @@ export class AnalyticsController {
   }
 
   static async getOverview(req: AuthRequest, res: Response) {
-    try {
-      if (!req.user?.id) {
-        return res.status(401).json({
-          success: false,
-          message: 'Unauthorized',
-        });
-      }
-
-      const { workspaceId } = req.params;
-
-      const [
-        kpis,
-        taskStatus,
-        projectStatus,
-        tasksByPriority,
-        deadlineRisk,
-      ] = await Promise.all([
-        AnalyticsQuery.getExecutiveKPIs(workspaceId, req.user.id),
-        AnalyticsQuery.getTaskStatusDistribution(workspaceId, req.user.id),
-        AnalyticsQuery.getProjectStatusDistribution(workspaceId, req.user.id),
-        AnalyticsQuery.getTasksByPriority(workspaceId, req.user.id),
-        AnalyticsQuery.getDeadlineRiskAnalysis(workspaceId, req.user.id),
-      ]);
-
-      return res.json({
-        success: true,
-        data: {
-          kpis,
-          taskStatus,
-          projectStatus,
-          tasksByPriority,
-          deadlineRisk,
-        },
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
       });
-    } catch (error: any) {
-      return AnalyticsController.handleAnalyticsError(error, res);
     }
+
+    const { workspaceId } = req.params;
+
+    const results = await Promise.allSettled([
+      AnalyticsQuery.getExecutiveKPIs(workspaceId, req.user.id),
+      AnalyticsQuery.getTaskStatusDistribution(workspaceId, req.user.id),
+      AnalyticsQuery.getProjectStatusDistribution(workspaceId, req.user.id),
+      AnalyticsQuery.getTasksByPriority(workspaceId, req.user.id),
+      AnalyticsQuery.getDeadlineRiskAnalysis(workspaceId, req.user.id),
+    ]);
+
+    const [
+      kpis,
+      taskStatus,
+      projectStatus,
+      tasksByPriority,
+      deadlineRisk,
+    ] = results.map((r) =>
+      r.status === 'fulfilled' ? r.value : null
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        kpis: kpis ?? {},
+        taskStatus: taskStatus ?? [],
+        projectStatus: projectStatus ?? [],
+        tasksByPriority: tasksByPriority ?? [],
+        deadlineRisk: deadlineRisk ?? {},
+      },
+    });
+  } catch (error: any) {
+    return AnalyticsController.handleAnalyticsError(error, res);
   }
+}
 
   static async getTaskTrends(req: AuthRequest, res: Response) {
     try {
