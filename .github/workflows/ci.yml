@@ -48,7 +48,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ✅ Ensure DB is REALLY ready
+      # ✅ Ensure Postgres is ready
       - name: Wait for PostgreSQL
         run: |
           for i in {1..30}; do
@@ -58,7 +58,7 @@ jobs:
           done
           exit 1
 
-      # ✅ Ensure Redis ready
+      # ✅ Ensure Redis is ready
       - name: Wait for Redis
         run: |
           for i in {1..20}; do
@@ -68,6 +68,7 @@ jobs:
           done
           exit 1
 
+      # ✅ Create env file for Vitest
       - name: Write .env.test
         run: |
           cat > .env.test << 'EOF'
@@ -106,29 +107,38 @@ jobs:
           ACCESS_TOKEN_SECRET=${{ secrets.ACCESS_TOKEN_SECRET }}
           EOF
 
+      # ✅ Generate RSA keys (required for auth tests)
       - name: Generate RSA keys
         run: |
           mkdir -p keys
           openssl genrsa -out keys/private.pem 2048
           openssl rsa -in keys/private.pem -pubout -out keys/public.pem
 
-      - name: Verify keys
+      - name: Verify keys exist
         run: |
           test -f keys/private.pem || exit 1
           test -f keys/public.pem || exit 1
 
+      # ✅ Load env BEFORE Prisma (CRITICAL FIX)
       - name: Generate Prisma client
-        run: npx prisma generate
+        run: |
+          export $(grep -v '^#' .env.test | xargs)
+          npx prisma generate
 
-      - name: Run migrations
-        run: npx prisma migrate deploy
+      - name: Run Prisma migrations
+        run: |
+          export $(grep -v '^#' .env.test | xargs)
+          npx prisma migrate deploy
 
+      # ✅ Clean Redis to avoid test pollution
       - name: Reset Redis
         run: redis-cli FLUSHALL
 
+      # ✅ Run tests (Vitest handles env internally)
       - name: Run tests
         run: npx vitest run --reporter=verbose
 
+      # ✅ Debug artifacts if failure
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
