@@ -16,6 +16,8 @@ import { WorkspaceRole, MeetingStatus, MeetingVisibility } from '@prisma/client'
 // ─────────────────────────────────────────────────────────────
 // POST /api/meetings/:workspaceId/meetings
 // ─────────────────────────────────────────────────────────────
+console.log('DATABASE_URL:', process.env.DATABASE_URL);
+console.log('DIRECT_URL:', process.env.DIRECT_URL);
 describe('POST /api/meetings/:workspaceId/meetings', () => {
   it('201 — member creates a meeting', async () => {
     const { user, workspace } = await createWorkspaceWithOwner();

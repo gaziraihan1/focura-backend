@@ -124,15 +124,33 @@ jobs:
         run: |
           export $(grep -v '^#' .env.test | xargs)
           npx prisma generate
+          env:
+            DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
+            DIRECT_URL: postgresql://postgres:test_password@localhost:5432/focura_test
 
       - name: Run Prisma migrations
         run: |
           export $(grep -v '^#' .env.test | xargs)
           npx prisma migrate deploy
+          env:
+            DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
+            DIRECT_URL: postgresql://postgres:test_password@localhost:5432/focura_test
 
       # ✅ Run tests (Vitest handles env internally)
       - name: Run tests
         run: npx vitest run --reporter=verbose
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
+          DIRECT_URL: postgresql://postgres:test_password@localhost:5432/focura_test
+          TEST_DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
+          REDIS_URL: redis://127.0.0.1:6379
+
+          JWT_PRIVATE_KEY_PATH: ./keys/private.pem
+          JWT_PUBLIC_KEY_PATH: ./keys/public.pem
+
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+          ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
 
       # ✅ Debug artifacts if failure
       - name: Upload artifacts on failure
