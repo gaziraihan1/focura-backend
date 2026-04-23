@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type {
   TaskFilterParams,
   PaginationParams,
@@ -10,7 +9,6 @@ import type {
 } from './task.types.js';
 import { taskFullInclude, taskDetailInclude } from './task.selects.js';
 import { TaskFilters } from './task.filters.js';
-import { TaskAccess } from './task.access.js';
 import { getTimeStatus } from './task.utils.js';
 
 export const TaskQuery = {
@@ -81,22 +79,83 @@ export const TaskQuery = {
       },
     };
   },
+// task.query.ts
 
-  async getTaskById(taskId: string, userId: string) {
-    await TaskAccess.assertTaskAccess(taskId, userId);
+// Replace getTaskById to eliminate the double-query N+1
+async getTaskById(taskId: string, userId: string) {
+  const task = await prisma.task.findFirst({
+    where: {
+      id: taskId,
+      OR: [
+        { createdById: userId },
+        { assignees: { some: { userId } } },
+        { project: { workspace: { members: { some: { userId } } } } },
+        { workspace: { members: { some: { userId } } } },
+      ],
+    },
+    include: taskDetailInclude,
+  });
 
-    const task = await prisma.task.findUnique({
-      where:   { id: taskId },
-      include: taskDetailInclude,
-    });
+  if (!task) throw new Error('Task not found');
+  return { ...task, timeTracking: getTimeStatus(task) };
+},
 
-    if (!task) throw new Error('Task not found');
+// New: single round-trip for the detail page
+async getTaskOverview(taskId: string, userId: string) {
+  const task = await prisma.task.findFirst({
+    where: {
+      id: taskId,
+      OR: [
+        { createdById: userId },
+        { assignees: { some: { userId } } },
+        { project: { workspace: { members: { some: { userId } } } } },
+        { workspace: { members: { some: { userId } } } }, // direct workspace tasks
+      ],
+    },
+    include: taskDetailInclude,
+  });
 
-    return {
-      ...task,
-      timeTracking: getTimeStatus(task),
-    };
-  },
+  if (!task) throw new Error('Task not found');
+
+  const [comments, attachments] = await Promise.all([
+    prisma.comment.findMany({
+      where:   { taskId, parentId: null },
+      include: {
+        user:    { select: { id: true, name: true, image: true } },
+        replies: {
+          include: {
+            user: { select: { id: true, name: true, image: true } },
+            mentions: {
+              include: {
+                mentionedUser: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        mentions: {
+          include: {
+            mentionedUser: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.file.findMany({
+      where:   { taskId },
+      include: {
+        uploadedBy: { select: { id: true, name: true, image: true } },
+      },
+      orderBy: { uploadedAt: 'desc' },
+    }),
+  ]);
+
+  return {
+    task:        { ...task, timeTracking: getTimeStatus(task) },
+    comments,
+    attachments,
+  };
+},
 
   async getTaskStats(params: {
     userId:      string;

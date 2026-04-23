@@ -6,7 +6,7 @@ import {
   getStorageInfo,
   seedWorkspaceStorageFromDb,
 } from "./attatchment.quota.service.js";
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import { WorkspacePlan } from "./attachment.quota.types.js";
 
 function handleError(res: Response, label: string, error: unknown): void {

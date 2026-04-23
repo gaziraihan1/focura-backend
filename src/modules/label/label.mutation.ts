@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { CreateLabelDto, UpdateLabelDto } from './label.types.js';
 import { NotFoundError, UnauthorizedError } from './label.types.js';
 import { labelListInclude, taskLabelInclude } from './label.selects.js';

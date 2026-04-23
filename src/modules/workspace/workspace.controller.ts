@@ -12,35 +12,56 @@ import {
   updateWorkspaceSchema,
   inviteMemberSchema,
 } from "./workspace.validators.js";
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
+import type { WorkspacePlan } from "./workspace.types.js";
 
-function handleError(res: Response, label: string, error: unknown): void {
+function looksLikeId(param: string): boolean {
+  return /^[a-z0-9]{20,}$/i.test(param);
+}
+
+function handleError(res: Response, label: string, error: unknown) {
   if (error instanceof z.ZodError) {
-    res
-      .status(400)
-      .json({
-        success: false,
-        message: "Validation error",
-        errors: error.issues,
-      });
+    // 422 Unprocessable Entity — request was well-formed but failed validation
+    return res.status(422).json({
+      success: false,
+      code: "VALIDATION_ERROR",
+      message: "Validation error",
+      errors: error.issues,
+    });
     return;
   }
+
   if (error instanceof Error) {
     const msg = error.message;
-    if (msg === "Unauthorized")
-      res.status(403).json({ success: false, message: msg });
-    else if (msg === "Workspace not found" || msg === "Invitation not found")
-      res.status(404).json({ success: false, message: msg });
-    else if (
-      msg.includes("limit reached") ||
+
+    if (msg === "Unauthorized") {
+      return res.status(403).json({ success: false, code: "FORBIDDEN", message: msg });
+    } else if (msg === "Workspace not found" || msg === "Invitation not found") {
+      return res.status(404).json({ success: false, code: "NOT_FOUND", message: msg });
+    } else if (
       msg.includes("already invited") ||
       msg.includes("already a member")
-    )
-      res.status(400).json({ success: false, message: msg });
-    else
-      res.status(500).json({ success: false, message: `Failed to ${label}` });
+    ) {
+      // 409 Conflict — duplicate resource, not a bad request
+      return res.status(409).json({ success: false, code: "CONFLICT", message: msg });
+    } else if (msg.includes("limit reached")) {
+      return res.status(402).json({ success: false, code: "LIMIT_REACHED", message: msg });
+    } else if (
+      msg.includes("Invalid invitation token") ||
+      msg.includes("Invitation already used") ||
+      msg.includes("Invitation expired") ||
+      msg.includes("Invitation email does not match") ||
+      msg.includes("Not a member") ||
+      msg.includes("Transfer ownership")
+    ) {
+      return res.status(400).json({ success: false, code: "BAD_REQUEST", message: msg });
+    } else {
+      console.error(`[workspace] Failed to ${label}:`, error);
+      return res.status(500).json({ success: false, message: `Failed to ${label}` });
+    }
   } else {
-    res.status(500).json({ success: false, message: `Failed to ${label}` });
+    console.error(`[workspace] Unknown error in ${label}:`, error);
+    return res.status(500).json({ success: false, message: `Failed to ${label}` });
   }
 }
 
@@ -67,13 +88,11 @@ export const createWorkspace = async (req: AuthRequest, res: Response) => {
         });
       },
     );
-    res
-      .status(201)
-      .json({
-        success: true,
-        data: workspace,
-        message: "Workspace created successfully",
-      });
+    res.status(201).json({
+      success: true,
+      data: workspace,
+      message: "Workspace created successfully",
+    });
   } catch (error) {
     handleError(res, "create workspace", error);
   }
@@ -82,20 +101,32 @@ export const createWorkspace = async (req: AuthRequest, res: Response) => {
 export const getWorkspace = async (req: AuthRequest, res: Response) => {
   try {
     const { slug } = req.params;
-    const isId = slug.startsWith("cml") && slug.length > 20;
-    const workspace = isId
+    const workspace = looksLikeId(slug)
       ? await WorkspaceQuery.getById(slug, req.user!.id)
       : await WorkspaceQuery.getBySlug(slug, req.user!.id);
-      if (workspace?.deletedAt) {
-        return res.status(403).json({
-          success: false,
-          message: "This workspace has been suspended",
-          code: "WORKSPACE_SUSPENDED"
-        })
-      }
+
+    if (workspace?.deletedAt) {
+      res.status(403).json({
+        success: false,
+        code: "WORKSPACE_SUSPENDED",
+        message: "This workspace has been suspended",
+      });
+      return;
+    }
+
     res.json({ success: true, data: workspace });
   } catch (error) {
     handleError(res, "fetch workspace", error);
+  }
+};
+
+export const getWorkspaceOverview = async (req: AuthRequest, res: Response) => {
+  try {
+    const { slug } = req.params;
+    const overview = await WorkspaceQuery.getOverview(slug, req.user!.id);
+    res.json({ success: true, data: overview });
+  } catch (error) {
+    handleError(res, "fetch workspace overview", error);
   }
 };
 
@@ -134,10 +165,7 @@ export const deleteWorkspace = async (req: AuthRequest, res: Response) => {
 
 export const getMembers = async (req: AuthRequest, res: Response) => {
   try {
-    const members = await WorkspaceQuery.getMembers(
-      req.params.id,
-      req.user!.id,
-    );
+    const members = await WorkspaceQuery.getMembers(req.params.id, req.user!.id);
     res.json({ success: true, data: members });
   } catch (error) {
     handleError(res, "fetch members", error);
@@ -168,7 +196,7 @@ export const inviteMember = async (req: AuthRequest, res: Response) => {
         }
       },
     );
-    res.json({
+    res.status(201).json({
       success: true,
       data: invitation,
       message: "Invitation sent successfully",
@@ -180,12 +208,10 @@ export const inviteMember = async (req: AuthRequest, res: Response) => {
 
 export const getInvitation = async (req: Request, res: Response) => {
   try {
-    const invitation = await WorkspaceQuery.getInvitationByToken(
-      req.params.token,
-    );
-    res.json({ success: true, data: invitation });
+    const invitation = await WorkspaceQuery.getInvitationByToken(req.params.token);
+    return res.json({ success: true, data: invitation });
   } catch (error) {
-    handleError(res, "fetch invitation", error);
+    return handleError(res, "fetch invitation", error); 
   }
 };
 

@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { NotificationMutation } from './notification.mutation.js';
 import { sendNotificationToUser } from '../../sockets/notification.stream.js';
 import type { NotificationType } from '@prisma/client';

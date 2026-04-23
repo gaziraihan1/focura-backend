@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { taskWorkspaceInclude } from './dailyTask.selects.js';
 
 export const DailyTaskAccess = {

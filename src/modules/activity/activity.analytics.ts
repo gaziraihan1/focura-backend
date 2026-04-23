@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { ActivityStats } from './activity.types.js';
 import { ActivityQuery } from './activity.query.js';
 

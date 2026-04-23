@@ -3,7 +3,7 @@
 // which uses Redis-based atomic counters and sliding windows.
 // This DB-based version is no longer called anywhere.
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { getLimitsForPlan, bytesToMB, getTodayStart, getTodayEnd } from './attachment.utils.js';
 import type { UploadLimits } from './attachment.types.js';
 

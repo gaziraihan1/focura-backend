@@ -10,7 +10,7 @@ import {
   WorkspacePlan,
   InvoiceStatus,
 } from "@prisma/client";
-import { prisma } from "../index.js";
+import { prisma } from "../lib/prisma.js";
 import { BILLING_CACHE } from "../redis/redis.client.js";
 
 function safeDate(

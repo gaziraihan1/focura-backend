@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { notificationInclude } from './notification.selects.js';
 import type { CreateNotificationInput } from './notification.types.js';
 

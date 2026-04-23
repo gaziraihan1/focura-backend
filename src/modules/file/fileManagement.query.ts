@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { FileManagementAccess } from './fileManagement.access.js';
 import { buildFileWhereClause, buildFileOrderBy } from './fileManagement.filters.js';
 import { bytesToMB, categorizeFileType } from './fileManagement.utils.js';

@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 
 export const FileManagementAccess = {
   async assertWorkspaceMember(userId: string, workspaceId: string) {

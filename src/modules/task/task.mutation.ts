@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import type { CreateTaskInput, UpdateTaskInput } from "./task.types.js";
 import { taskFullInclude, taskWithAssigneesInclude } from "./task.selects.js";
 import { TaskAccess } from "./task.access.js";

@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { CreateActivityParams, ClearActivitiesFilters } from './activity.types.js';
 import { activityFullInclude } from './activity.selects.js';
 import { ActivityAccess } from './activity.access.js';

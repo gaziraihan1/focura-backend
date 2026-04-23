@@ -1,5 +1,3 @@
-
-
 export type DailyTaskType = 'PRIMARY' | 'SECONDARY';
 
 export interface GetDailyTasksParams {

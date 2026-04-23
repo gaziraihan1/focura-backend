@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { LabelFilters, PopularLabelsFilters, NotFoundError } from './label.types.js';
 import { labelListInclude, labelDetailInclude } from './label.selects.js';
 import { LabelAccess } from './label.access.js';

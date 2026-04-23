@@ -13,9 +13,11 @@ const router = Router();
 
 router.get('/invitations/:token', WorkspaceController.getInvitation);
 router.use(authenticate);
+router.post('/invitations/:token/accept', WorkspaceController.acceptInvitation);
 
 router.get('/', WorkspaceController.getAllWorkspaces);
 router.post('/', requireWorkspaceCreationSlot, WorkspaceController.createWorkspace);
+router.get('/:slug/overview', WorkspaceController.getWorkspaceOverview);
 router.get('/:slug', WorkspaceController.getWorkspace);
 router.put('/:id', WorkspaceController.updateWorkspace);
 router.delete('/:id', WorkspaceController.deleteWorkspace);
@@ -28,10 +30,10 @@ router.get('/:id/stats', WorkspaceController.getStats);
 router.get('/:workspaceId/attachments/stats', getAttachmentStats);
 router.get('/:workspaceId/storage', getWorkspaceStorage);
 
-// ── Announcements
+// Announcements (nested router)
 router.use('/:workspaceId/announcements', workspaceAnnouncementRouter);
 
-router.post('/invitations/:token/accept', WorkspaceController.acceptInvitation);
+// Leave workspace
 router.post('/:id/leave', WorkspaceController.leaveWorkspace);
 
 export default router;

@@ -1,4 +1,3 @@
-
 import type { TaskForTimeTracking, TimeTracking } from './task.types.js';
 
 export function getTimeStatus(task: TaskForTimeTracking, now = new Date()): TimeTracking {

@@ -76,3 +76,12 @@ export const castVote = async (req: AuthRequest, res: Response) => {
 export const getAdminContext = async (req: AuthRequest, res: Response) => {
   res.json({ success: true, isAdmin: isFocuraAdmin(req.user!.id) });
 };
+
+export const removeVote = async (req: AuthRequest, res: Response) => {
+  try {
+    await FeatureService.removeVote(req.params.id, req.user!.id);
+    res.json({ success: true });
+  } catch (e) {
+    handleError(res, 'remove vote', e);
+  }
+};

@@ -17,7 +17,8 @@ import type {
   NormalisedEventType,
 } from "../../IpaymentProvider.js";
 import { BillingCycle } from "@prisma/client";
-import { prisma } from "../../../index.js";
+import { prisma } from "../../../lib/prisma.js";
+// import { prisma } from "../../../index.js";
 
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error("[StripeProvider] STRIPE_SECRET_KEY is not set");

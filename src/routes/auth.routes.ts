@@ -1,6 +1,6 @@
 import { Router } from "express";
 import crypto from "crypto";
-import { prisma } from "../index.js";
+import { prisma } from "../lib/prisma.js";
 import {
   createTokenPair,
   verifyToken,

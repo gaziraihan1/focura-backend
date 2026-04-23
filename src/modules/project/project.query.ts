@@ -1,4 +1,4 @@
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { NotFoundError } from './project.types.js';
 import {
   projectListInclude,

@@ -3,7 +3,7 @@
 // workspaceId is always read from req.params.workspaceId.
 
 import { Response, NextFunction } from "express";
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import { AuthRequest } from "../../middleware/auth.js";
 import { BillingService } from "./billing.service.js";
 

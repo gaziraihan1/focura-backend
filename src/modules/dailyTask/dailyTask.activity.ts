@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { DailyTaskType } from './dailyTask.types.js';
 
 export const DailyTaskActivity = {

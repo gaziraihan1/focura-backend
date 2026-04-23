@@ -1,4 +1,3 @@
-
 export { LabelQuery }    from './label.query.js';
 export { LabelMutation } from './label.mutation.js';
 export { LabelAccess }   from './label.access.js';

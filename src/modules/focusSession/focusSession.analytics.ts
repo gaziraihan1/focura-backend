@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { GetFocusStatsInput, FocusStats } from './focusSession.types.js';
 
 export const FocusSessionAnalytics = {

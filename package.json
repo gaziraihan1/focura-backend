@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "type": "module",
   "prisma": {
-  "seed": "tsx prisma/seed.ts"
-},
+    "seed": "tsx prisma/seed.ts"
+  },
   "scripts": {
     "dev": "nodemon --watch src --ext ts,json --exec tsx src/index.ts",
     "build": "tsc",
@@ -15,7 +15,15 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "deploy": "npm run build && prisma migrate deploy && npm start"
+    "deploy": "npm run build && prisma migrate deploy && npm start",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:unit": "vitest run src/tests/unit",
+    "test:integration": "vitest run src/tests/integrations",
+    "test:verbose": "vitest run --reporter=verbose",
+    "test:ui": "vitest --ui",
+    "test:file": "vitest run"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -24,6 +32,7 @@
     "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "escape-html": "^1.0.3",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "express-validator": "^7.3.1",
@@ -38,8 +47,10 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@faker-js/faker": "^9.9.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
+    "@types/escape-html": "^1.0.4",
     "@types/express": "^5.0.5",
     "@types/express-validator": "^2.20.33",
     "@types/ioredis": "^4.28.10",
@@ -47,10 +58,18 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",
     "@types/nodemailer": "^7.0.4",
+    "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
+    "dotenv-cli": "^7.4.4",
+    "msw": "^2.13.3",
     "nodemon": "^3.1.11",
     "prisma": "^5.22.0",
+    "supertest": "^7.2.2",
     "ts-node": "^11.0.0-beta.1",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^3.2.4"
   }
 }

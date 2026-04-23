@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import { meetingSelect } from "./meeting.select.js";
 import type { MeetingStatus } from "@prisma/client";
 

@@ -1,5 +1,5 @@
 
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import { AnalyticsAccess } from "./analytics.access.js";
 import {
   minutesToHours,

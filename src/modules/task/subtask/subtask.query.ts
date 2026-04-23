@@ -1,4 +1,4 @@
-import { prisma } from '../../../index.js';
+import { prisma } from '../../../lib/prisma.js';
 import { SubtaskAccess } from './subtask.access.js';
 import { getTimeStatus } from '../index.js';
 

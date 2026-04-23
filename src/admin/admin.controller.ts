@@ -4,7 +4,7 @@ import type { AuthRequest } from "../middleware/auth.js";
 import { AdminRepository } from "./admin.repository.js";
 import { isFocuraAdmin } from "../config/admin.config.js";
 import { sendWorkspaceDeletedEmail, sendBanEmail } from './admin.email.js';
-import { prisma } from "../index.js";
+import { prisma } from "../lib/prisma.js";
 import { notifyUser } from "../modules/notification/notification.helpers.js";
 
 const paginationSchema = z.object({

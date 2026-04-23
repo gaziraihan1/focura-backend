@@ -1,17 +1,16 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import {
   workspaceListInclude,
   workspaceDetailInclude,
 } from "./workspace.selects.js";
 import { WorkspaceAccess } from "./workspace.access.js";
 import type { WorkspaceStats } from "./workspace.types.js";
+import { projectWorkspaceListSelect } from "../project/project.selects.js";
 
 export const WorkspaceQuery = {
   async getUserWorkspaces(userId: string) {
     return prisma.workspace.findMany({
-      where: {
-        OR: [{ ownerId: userId }, { members: { some: { userId } } }],
-      },
+      where: { members: { some: { userId } } },
       include: workspaceListInclude,
       orderBy: { updatedAt: "desc" },
     });
@@ -22,7 +21,6 @@ export const WorkspaceQuery = {
       where: {
         slug,
         OR: [
-          { ownerId: userId },
           { isPublic: true },
           { members: { some: { userId } } },
         ],
@@ -38,7 +36,6 @@ export const WorkspaceQuery = {
       where: {
         id,
         OR: [
-          { ownerId: userId },
           { isPublic: true },
           { members: { some: { userId } } },
         ],
@@ -62,6 +59,35 @@ export const WorkspaceQuery = {
 
   async getStats(workspaceId: string, userId: string): Promise<WorkspaceStats> {
     await WorkspaceAccess.assertMember(workspaceId, userId);
+    return WorkspaceQuery.computeStats(workspaceId);
+  },
+
+  async getOverview(slug: string, userId: string) {
+    const isId = /^[a-z0-9]{20,}$/i.test(slug);
+
+    const workspace = await prisma.workspace.findFirst({
+      where: isId
+        ? { id: slug,   OR: [{ isPublic: true }, { members: { some: { userId } } }] }
+        : { slug,       OR: [{ isPublic: true }, { members: { some: { userId } } }] },
+      include: workspaceDetailInclude,
+    });
+
+    if (!workspace) throw new Error("Workspace not found");
+    if (workspace.deletedAt) throw new Error("Workspace suspended");
+
+    const [stats, projects] = await Promise.all([
+      WorkspaceQuery.computeStats(workspace.id),
+      prisma.project.findMany({
+        where:   { workspaceId: workspace.id },
+        select:  projectWorkspaceListSelect,
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+
+    return { workspace, stats, projects };
+  },
+
+  async computeStats(workspaceId: string): Promise<WorkspaceStats> {
     const [
       totalProjects,
       totalTasks,
@@ -72,14 +98,12 @@ export const WorkspaceQuery = {
       prisma.project.count({ where: { workspaceId } }),
       prisma.task.count({ where: { project: { workspaceId } } }),
       prisma.workspaceMember.count({ where: { workspaceId } }),
-      prisma.task.count({
-        where: { project: { workspaceId }, status: "COMPLETED" },
-      }),
+      prisma.task.count({ where: { project: { workspaceId }, status: "COMPLETED" } }),
       prisma.task.count({
         where: {
           project: { workspaceId },
           dueDate: { lt: new Date() },
-          status: { notIn: ["COMPLETED", "CANCELLED"] },
+          status:  { notIn: ["COMPLETED", "CANCELLED"] },
         },
       }),
     ]);

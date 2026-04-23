@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import * as slugifyModule from "slugify";
 const slugify = (slugifyModule as any).default || slugifyModule;
 

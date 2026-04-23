@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { GoalCheckpoint, CreateGoalCheckpointInput } from './calendar.types.js';
 
 export const CalendarMutation = {

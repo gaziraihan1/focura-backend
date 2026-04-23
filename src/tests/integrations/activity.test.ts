@@ -1,0 +1,222 @@
+// Tests Activity system: query, access control, deletion, clearing
+
+import { describe, it, expect, beforeEach } from 'vitest';
+import request from 'supertest';
+import app from '../../app.js';
+import { prisma } from '../../lib/prisma.js';
+
+import {
+  createUser,
+  createWorkspaceWithOwner,
+  createProject,
+  createTask,
+  createActivity,
+  addMemberToWorkspace,
+  assignUserToTask,
+} from '../factories/index.js';
+
+import { authHeaders } from '../helpers/auth.js';
+
+// ─────────────────────────────────────────────────────────────
+// Setup
+// ─────────────────────────────────────────────────────────────
+
+let user: any;
+let workspace: any;
+let project: any;
+let task: any;
+
+beforeEach(async () => {
+  const setup = await createWorkspaceWithOwner();
+  user = setup.user;
+  workspace = setup.workspace;
+
+  project = await createProject(workspace.id, user.id);
+  task = await createTask(workspace.id, user.id, {
+    projectId: project.id,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/activities
+// ─────────────────────────────────────────────────────────────
+
+describe('GET /api/activities', () => {
+  it('200 — returns user activities', async () => {
+    await createActivity(user.id, workspace.id, {
+      taskId: task.id,
+    });
+
+    const res = await request(app)
+      .get('/api/activities')
+      .set(authHeaders(user));
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0);
+  });
+
+  it('200 — supports filters (workspaceId)', async () => {
+    await createActivity(user.id, workspace.id);
+
+    const res = await request(app)
+      .get('/api/activities')
+      .query({ workspaceId: workspace.id })
+      .set(authHeaders(user));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.every((a: any) => a.workspaceId === workspace.id)).toBe(true);
+  });
+
+  it('401 — unauthenticated', async () => {
+    const res = await request(app).get('/api/activities');
+    expect(res.status).toBe(401);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /workspace/:workspaceId
+// ─────────────────────────────────────────────────────────────
+
+describe('GET /api/activities/workspace/:workspaceId', () => {
+  it('200 — member can access workspace activities', async () => {
+    await createActivity(user.id, workspace.id);
+
+    const res = await request(app)
+      .get(`/api/activities/workspace/${workspace.id}`)
+      .set(authHeaders(user));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+  });
+
+  it('403 — non-member cannot access', async () => {
+    const other = await createUser();
+
+    const res = await request(app)
+      .get(`/api/activities/workspace/${workspace.id}`)
+      .set(authHeaders(other));
+
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /task/:taskId
+// ─────────────────────────────────────────────────────────────
+
+describe('GET /api/activities/task/:taskId', () => {
+  it('200 — assigned user can access task activities', async () => {
+    const member = await createUser();
+    await addMemberToWorkspace(member.id, workspace.id);
+    await assignUserToTask(task.id, member.id);
+
+    await createActivity(member.id, workspace.id, {
+      taskId: task.id,
+    });
+
+    const res = await request(app)
+      .get(`/api/activities/task/${task.id}`)
+      .set(authHeaders(member));
+
+    expect(res.status).toBe(200);
+  });
+
+  it('403 — user without access', async () => {
+    const other = await createUser();
+
+    const res = await request(app)
+      .get(`/api/activities/task/${task.id}`)
+      .set(authHeaders(other));
+
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// DELETE /api/activities/clear
+// ─────────────────────────────────────────────────────────────
+
+describe('DELETE /api/activities/clear', () => {
+  it('200 — clears all user activities', async () => {
+    await createActivity(user.id, workspace.id);
+
+    const res = await request(app)
+      .delete('/api/activities/clear')
+      .set(authHeaders(user));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.deletedCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('200 — supports filtering by workspace', async () => {
+    const otherWorkspaceSetup = await createWorkspaceWithOwner();
+    const otherWorkspace = otherWorkspaceSetup.workspace;
+
+    await createActivity(user.id, workspace.id);
+    await createActivity(user.id, otherWorkspace.id);
+
+    const res = await request(app)
+      .delete('/api/activities/clear')
+      .query({ workspaceId: workspace.id })
+      .set(authHeaders(user));
+
+    expect(res.status).toBe(200);
+
+    const remaining = await prisma.activity.findMany({
+      where: { userId: user.id },
+    });
+
+    expect(remaining.every(a => a.workspaceId !== workspace.id)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// DELETE /api/activities/:activityId
+// ─────────────────────────────────────────────────────────────
+
+describe('DELETE /api/activities/:activityId', () => {
+  it('200 — user deletes own activity', async () => {
+    const activity = await createActivity(user.id, workspace.id);
+
+    const res = await request(app)
+      .delete(`/api/activities/${activity.id}`)
+      .set(authHeaders(user));
+
+    expect(res.status).toBe(200);
+  });
+
+  it('403 — non-owner cannot delete', async () => {
+    const activity = await createActivity(user.id, workspace.id);
+
+    const other = await createUser();
+    await addMemberToWorkspace(other.id, workspace.id);
+
+    const res = await request(app)
+      .delete(`/api/activities/${activity.id}`)
+      .set(authHeaders(other));
+
+    expect(res.status).toBe(403);
+  });
+
+  it('200 — workspace ADMIN can delete activity', async () => {
+    const activity = await createActivity(user.id, workspace.id);
+
+    const admin = await createUser();
+    await addMemberToWorkspace(admin.id, workspace.id, 'ADMIN');
+
+    const res = await request(app)
+      .delete(`/api/activities/${activity.id}`)
+      .set(authHeaders(admin));
+
+    expect(res.status).toBe(200);
+  });
+
+  it('404 — activity not found', async () => {
+    const res = await request(app)
+      .delete('/api/activities/fake-id-123')
+      .set(authHeaders(user));
+
+    expect(res.status).toBe(404);
+  });
+});

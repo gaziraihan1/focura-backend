@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 
 export const WorkspaceAccess = {
   async assertMember(workspaceId: string, userId: string) {

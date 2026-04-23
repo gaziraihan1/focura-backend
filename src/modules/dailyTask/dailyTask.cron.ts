@@ -1,4 +1,3 @@
-
 import cron from 'node-cron';
 import { DailyTaskMutation } from './dailyTask.mutation.js';
 

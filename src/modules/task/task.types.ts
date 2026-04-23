@@ -1,5 +1,3 @@
-
-
 export type TaskStatus   = 'TODO' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 export type TaskPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
 export type TaskIntent   = 'EXECUTION' | 'PLANNING' | 'REVIEW' | 'LEARNING' | 'COMMUNICATION';

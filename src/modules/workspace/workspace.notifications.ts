@@ -1,4 +1,4 @@
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { notifyUser } from '../notification/notification.helpers.js';
 
 export const WorkspaceNotifications = {

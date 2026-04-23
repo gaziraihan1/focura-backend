@@ -1,9 +1,4 @@
-/**
- * workspaceUsage.access.ts
- * Access control for workspace usage analytics.
- */
-
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 
 export const WorkspaceUsageAccess = {
   async assertWorkspaceMember(userId: string, workspaceId: string) {

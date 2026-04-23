@@ -1,4 +1,3 @@
-
 const DAY_MAP: Record<string, number> = {
   SUN: 0,
   MON: 1,

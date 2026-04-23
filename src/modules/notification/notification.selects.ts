@@ -1,4 +1,3 @@
-
 export const senderSelect = {
   id: true,
   name: true,

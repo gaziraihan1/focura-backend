@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { EditPermissionResult } from './task.types.js';
 import { taskPermissionInclude } from './task.selects.js';
 

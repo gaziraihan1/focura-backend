@@ -1,5 +1,5 @@
 import slugify from "slugify";
-import { prisma } from "../index.js";
+import { prisma } from "../lib/prisma.js";
 
 export class SlugService {
   static async generateWorkspaceSlug(name: string): Promise<string> {

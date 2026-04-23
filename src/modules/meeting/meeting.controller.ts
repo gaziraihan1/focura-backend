@@ -6,7 +6,7 @@ import {
   updateMeetingSchema,
   listMeetingsSchema,
 } from "./meeting.validator.js";
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 
 export class MeetingController {
   private static handleMeetingError(error: any, res: Response) {

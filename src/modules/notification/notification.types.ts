@@ -1,4 +1,3 @@
-
 import { NotificationType } from "@prisma/client";
 
 export interface CreateNotificationInput {

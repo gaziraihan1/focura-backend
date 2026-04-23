@@ -6,7 +6,7 @@ import type { AnnouncementResult } from './announcement.types.js';
  * Only OWNER and ADMIN roles can manage.
  */
 export function canManageAnnouncements(role?: string): boolean {
-  return role === 'OWNER' || role === 'ADMIN';
+return role?.toUpperCase?.() === 'OWNER' || role?.toUpperCase?.() === 'ADMIN';
 }
 
 export function canManageProjectAnnouncements(workspaceRole: WorkspaceRole, projectRole?: string | null) {

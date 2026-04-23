@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { GetDailyTasksParams, GetDailyTaskStatsParams, DailyTaskStats } from './dailyTask.types.js';
 import { taskFullInclude, taskStatsSelect } from './dailyTask.selects.js';
 

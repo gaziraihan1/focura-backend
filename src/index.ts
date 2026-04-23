@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import helmet from 'helmet';
 
-import {projectRouter} from './modules/project/index.js';
+import projectRoutes from './modules/project/project.routes.js';
 import {taskRouter} from './modules/task/index.js';
 import {dailyTaskRouter, initDailyTaskCrons} from './modules/dailyTask/index.js';
 import {activityRouter} from './modules/activity/index.js';
@@ -30,12 +30,13 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
 import { projectAnnouncementRouter, workspaceAnnouncementRouter } from './modules/announcement/index.js';
 import { adminRouter } from './admin/admin.routes.js';
+import { prisma } from './lib/prisma.js';
 
 dotenv.config();
 
-export const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-});
+// export const prisma = new PrismaClient({
+  // log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+// });
 
 const app: Application = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -143,10 +144,10 @@ app.get('/api/debug/auth', (req: Request, res: Response) => {
 app.use('/api/notifications', notificationRouter);
 app.use('/api/workspaces/:workspaceId/projects/:projectId/announcements', authenticate, projectAnnouncementRouter);
 app.use('/api/workspaces/:workspaceId/announcements', authenticate, workspaceAnnouncementRouter)
-app.use('/api/workspaces', authenticate, workspaceRouter);
+app.use('/api/workspaces', workspaceRouter);
 app.use('/api/workspaces/:workspaceId/billing', authenticate, billingRouter);
 app.use('/api/announcements', authenticate, announcementRouter)
-app.use('/api/projects', authenticate, projectRouter);
+app.use('/api/projects', authenticate, projectRoutes);
 app.use('/api/tasks', authenticate, taskRouter);
 app.use('/api/daily-tasks', authenticate, dailyTaskRouter);
 app.use('/api/activities', authenticate, activityRouter);

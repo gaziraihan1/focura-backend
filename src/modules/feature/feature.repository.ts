@@ -1,4 +1,4 @@
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type {
   CreateFeatureRequestInput,
   UpdateFeatureStatusInput,
@@ -135,31 +135,40 @@ export const FeatureRepository = {
     featureRequestId: string,
     userId:           string,
     type:             VoteType,
-  ): Promise<'created' | 'updated' | 'retracted'> {
+  ): Promise<'created' | 'updated' | 'retracted' | 'unchanged'> {
     const existing = await prisma.featureVote.findUnique({
       where: { userId_featureRequestId: { userId, featureRequestId } },
     });
 
     if (!existing) {
-      await prisma.featureVote.create({
-        data: { userId, featureRequestId, type },
-      });
-      return 'created';
-    }
+  await prisma.featureVote.create({
+    data: { userId, featureRequestId, type },
+  });
+  return 'created';
+}
 
-    if (existing.type === type) {
-      // Same vote — retract
-      await prisma.featureVote.delete({
-        where: { userId_featureRequestId: { userId, featureRequestId } },
-      });
-      return 'retracted';
-    }
+if (existing.type === type) {
+  // ✅ idempotent — no change
+  return 'unchanged';
+}
 
-    // Different vote — switch
-    await prisma.featureVote.update({
-      where: { userId_featureRequestId: { userId, featureRequestId } },
-      data:  { type },
-    });
-    return 'updated';
+await prisma.featureVote.update({
+  where: { userId_featureRequestId: { userId, featureRequestId } },
+  data: { type },
+});
+return 'updated';
   },
+  async removeVote(featureRequestId: string, userId: string): Promise<void> {
+  const existing = await prisma.featureVote.findUnique({
+    where: { userId_featureRequestId: { userId, featureRequestId } },
+  });
+
+  if (!existing) {
+    throw new Error('NOT_FOUND: Vote not found');
+  }
+
+  await prisma.featureVote.delete({
+    where: { userId_featureRequestId: { userId, featureRequestId } },
+  });
+}
 };

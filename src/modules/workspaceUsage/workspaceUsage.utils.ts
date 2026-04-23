@@ -1,8 +1,3 @@
-/**
- * workspaceUsage.utils.ts
- * Utility functions for date calculations and metrics.
- */
-
 export function bytesToMB(bytes: number): number {
   return Math.round((bytes / (1024 * 1024)) * 100) / 100;
 }

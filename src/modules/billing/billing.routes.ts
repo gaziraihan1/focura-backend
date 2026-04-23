@@ -1,7 +1,3 @@
-// backend/src/billing/billing.router.ts
-// Mounted at /workspaces/:workspaceId/billing
-// All routes sit under the workspace namespace so they naturally scope to one workspace.
-
 import { Router }           from 'express';
 import { BillingController } from './billing.controller.js';
 import { authenticate } from '../../middleware/auth.js';
@@ -19,10 +15,3 @@ router.post('/reactivate-subscription',  BillingController.reactivateSubscriptio
 router.get ('/invoices',                 BillingController.getInvoices);
 
 export default router;
-
-// ---------------------------------------------------------------------------
-// In your main app.ts, mount like this:
-//
-//   import workspaceBillingRouter from './billing/billing.router';
-//   app.use('/workspaces/:workspaceId/billing', workspaceBillingRouter);
-// ---------------------------------------------------------------------------

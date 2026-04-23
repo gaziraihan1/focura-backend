@@ -1,4 +1,3 @@
-
 import type { Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../../middleware/auth.js';
@@ -70,6 +69,14 @@ export const getTaskStats = async (req: AuthRequest, res: Response) => {
     res.json({ success: true, data: stats });
   } catch (error) {
     handleError(res, 'fetch task statistics', error);
+  }
+};
+export const getTaskOverview = async (req: AuthRequest, res: Response) => {
+  try {
+    const overview = await TaskQuery.getTaskOverview(req.params.id, req.user!.id);
+    res.json({ success: true, data: overview });
+  } catch (error) {
+    handleError(res, 'fetch task overview', error);
   }
 };
 

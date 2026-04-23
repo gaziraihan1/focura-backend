@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import { UnauthorizedError, NotFoundError } from "./storage.types.js";
 
 export const StorageAccess = {

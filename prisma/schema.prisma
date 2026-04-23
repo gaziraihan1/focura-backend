@@ -175,8 +175,8 @@ model User {
   updatedAt              DateTime               @updatedAt
   lastLoginAt            DateTime?
   stripeCustomerId       String?                @unique
-  bannedAt               DateTime?
   banReason              String?
+  bannedAt               DateTime?
   bannedById             String?
   accounts               Account[]
   activities             Activity[]
@@ -230,10 +230,10 @@ model Workspace {
   maxStorage      Int                   @default(1024)
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
+  ownerId         String
+  deleteReason    String?
   deletedAt       DateTime?
   deletedById     String?
-  deleteReason    String?
-  ownerId         String
   activities      Activity[]
   announcements   Announcement[]
   files           File[]

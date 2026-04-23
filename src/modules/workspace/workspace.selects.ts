@@ -1,4 +1,3 @@
-
 export const ownerSelect = {
   id: true,
   name: true,

@@ -1,4 +1,3 @@
-
 export const createdBySelect = {
   id:    true,
   name:  true,

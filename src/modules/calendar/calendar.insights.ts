@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import type { BurnoutSignal, CalendarInsights } from "./calendar.types.js";
 import type { RiskLevel } from "./calendar.types.js";
 import { CalendarAggregation } from "./calendar.aggregation.js";

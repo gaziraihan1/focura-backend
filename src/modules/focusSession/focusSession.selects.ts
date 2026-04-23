@@ -1,4 +1,3 @@
-
 export const taskSlimSelect = {
   id:          true,
   title:       true,

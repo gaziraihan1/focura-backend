@@ -1,4 +1,3 @@
-
 import { FocusType } from '@prisma/client';
 
 export type { FocusType } from '@prisma/client';

@@ -1,4 +1,4 @@
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type {
   CreateAnnouncementInput,
   UpdateAnnouncementInput,
@@ -8,8 +8,6 @@ import type {
 } from './announcement.types.js';
 
 // ─── Include shape ────────────────────────────────────────────────────────────
-// targets are only needed for PRIVATE announcements — we always include them
-// but Prisma batches this in 2 queries total (not N+1), so it's fine.
 
 const announcementInclude = {
   createdBy: { select: { id: true, name: true, image: true } },
@@ -17,7 +15,9 @@ const announcementInclude = {
   targets: {
     select: {
       userId: true,
-      user:   { select: { id: true, name: true, image: true } },
+      user: {
+        select: { id: true, name: true, image: true },
+      },
     },
   },
 } as const;
@@ -26,145 +26,166 @@ const announcementInclude = {
 
 function mapAnnouncement(raw: any): AnnouncementResult {
   return {
-    id:          raw.id,
-    title:       raw.title,
-    content:     raw.content,
-    visibility:  raw.visibility,
-    isPinned:    raw.isPinned,
-    createdAt:   raw.createdAt,
-    updatedAt:   raw.updatedAt,
+    id: raw.id,
+    title: raw.title,
+    content: raw.content,
+    visibility: raw.visibility,
+    isPinned: raw.isPinned,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
     workspaceId: raw.workspaceId,
-    projectId:   raw.projectId   ?? null,
+    projectId: raw.projectId ?? null,
     createdById: raw.createdById,
-    project:     raw.project     ?? null,
+    project: raw.project ?? null,
+
     createdBy: {
-      id:    raw.createdBy.id,
-      name:  raw.createdBy.name  ?? 'Unknown',
+      id: raw.createdBy.id,
+      name: raw.createdBy.name ?? 'Unknown',
       image: raw.createdBy.image ?? null,
     },
-    targets: raw.targets.map((t: any) => ({
+
+    // FIX: safe fallback (prevents runtime crash in edge cases/tests)
+    targets: (raw.targets ?? []).map((t: any) => ({
       userId: t.userId,
       user: {
-        id:    t.user.id,
-        name:  t.user.name  ?? 'Unknown',
+        id: t.user.id,
+        name: t.user.name ?? 'Unknown',
         image: t.user.image ?? null,
       },
     })),
   };
 }
 
-// ─── Access filter factory ────────────────────────────────────────────────────
-// Extracted so it's reused identically in findMany + count
+// ─── ACCESS FILTER ────────────────────────────────────────────────────────────
 
 function buildAccessFilter(
-  userId:     string,
+  userId: string,
   visibility: AnnouncementFilterParams['visibility'],
 ) {
-  if (visibility === 'PRIVATE') {
-    return {
-      visibility: 'PRIVATE' as const,
-      OR: [
-        { createdById: userId },
-        { targets: { some: { userId } } },
-      ],
-    };
-  }
+  const basePrivate = {
+    visibility: 'PRIVATE' as const,
+    OR: [
+      { createdById: userId },
+      { targets: { some: { userId } } },
+    ],
+  };
+
+  if (visibility === 'PRIVATE') return basePrivate;
+
   if (visibility === 'PUBLIC') {
     return { visibility: 'PUBLIC' as const };
   }
-  // ALL — public + private where user is creator or target
+
   return {
     OR: [
       { visibility: 'PUBLIC' as const },
-      {
-        visibility: 'PRIVATE' as const,
-        OR: [
-          { createdById: userId },
-          { targets: { some: { userId } } },
-        ],
-      },
+      basePrivate,
     ],
   };
 }
 
-// ─── Project membership filter ────────────────────────────────────────────────
-// projectId = string  → that project only
-// projectId = null    → workspace-wide only (no project)
-// projectId undefined → all (workspace-wide + joined projects)
+// ─── PROJECT FILTER (FIXED - CRITICAL) ────────────────────────────────────────
 
 function buildProjectFilter(
-  userId:    string,
+  userId: string,
   projectId: string | null | undefined,
 ) {
+  // Specific project requested
   if (projectId !== undefined) {
-    // specific project or workspace-wide only
-    return { projectId };
+    return {
+      projectId,
+    };
   }
-  // All: workspace-wide always visible +
-  // project announcements only for projects the user belongs to
+
+  // All announcements
   return {
     OR: [
       { projectId: null },
       {
         projectId: { not: null },
-        project:   { members: { some: { userId } } },
+        project: {
+          members: {
+            some: { userId },
+          },
+        },
       },
     ],
   };
 }
 
-// ─── Repository ───────────────────────────────────────────────────────────────
+// ─── REPOSITORY ───────────────────────────────────────────────────────────────
 
 export const AnnouncementRepository = {
   async create(input: CreateAnnouncementInput): Promise<AnnouncementResult> {
     const raw = await prisma.announcement.create({
       data: {
-        title:       input.title,
-        content:     input.content,
-        visibility:  input.visibility,
-        isPinned:    input.isPinned ?? false,
+        title: input.title,
+        content: input.content,
+        visibility: input.visibility,
+        isPinned: input.isPinned ?? false,
         workspaceId: input.workspaceId,
-        projectId:   input.projectId ?? null,
+        projectId: input.projectId ?? null,
         createdById: input.createdById,
+
         ...(input.visibility === 'PRIVATE' &&
-          input.targetIds?.length && {
-            targets: { create: input.targetIds.map((userId) => ({ userId })) },
-          }),
+        input.targetIds?.length
+          ? {
+              targets: {
+                create: input.targetIds.map((userId) => ({
+                  userId,
+                })),
+              },
+            }
+          : {}),
       },
       include: announcementInclude,
     });
+
     return mapAnnouncement(raw);
   },
 
   async findById(id: string): Promise<AnnouncementResult | null> {
     const raw = await prisma.announcement.findUnique({
-      where:   { id },
+      where: { id },
       include: announcementInclude,
     });
+
     return raw ? mapAnnouncement(raw) : null;
   },
 
-  async findMany(params: AnnouncementFilterParams): Promise<PaginatedAnnouncementsResult> {
-    const page     = Math.max(1, params.page     ?? 1);
+  async findMany(
+    params: AnnouncementFilterParams,
+  ): Promise<PaginatedAnnouncementsResult> {
+    const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 10));
-    const skip     = (page - 1) * pageSize;
+    const skip = (page - 1) * pageSize;
 
     const where = {
-      workspaceId: params.workspaceId,
-      ...(params.isPinned !== undefined && { isPinned: params.isPinned }),
-      ...buildAccessFilter(params.userId, params.visibility),
-      ...buildProjectFilter(params.userId, params.projectId),
+      AND: [
+        { workspaceId: params.workspaceId },
+
+        ...(params.isPinned !== undefined
+          ? [{ isPinned: params.isPinned }]
+          : []),
+
+        buildAccessFilter(params.userId, params.visibility),
+        buildProjectFilter(params.userId, params.projectId),
+      ],
     };
 
-    // Single round-trip: data + count in parallel
     const [rows, totalCount] = await Promise.all([
       prisma.announcement.findMany({
         where,
         include: announcementInclude,
-        orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [
+          { isPinned: 'desc' },
+          { createdAt: 'desc' },
+          { id: 'desc' }, // FIX: stable ordering for tests
+        ],
         skip,
         take: pageSize,
       }),
+
       prisma.announcement.count({ where }),
     ]);
 
@@ -183,12 +204,16 @@ export const AnnouncementRepository = {
     };
   },
 
-  async update(id: string, input: UpdateAnnouncementInput): Promise<AnnouncementResult> {
+  async update(
+    id: string,
+    input: UpdateAnnouncementInput,
+  ): Promise<AnnouncementResult> {
     const raw = await prisma.announcement.update({
-      where:   { id },
-      data:    input,
+      where: { id },
+      data: input,
       include: announcementInclude,
     });
+
     return mapAnnouncement(raw);
   },
 
@@ -198,14 +223,14 @@ export const AnnouncementRepository = {
 
   async isWorkspaceMember(workspaceId: string, userId: string) {
     return prisma.workspaceMember.findFirst({
-      where:  { workspaceId, userId },
+      where: { workspaceId, userId },
       select: { role: true },
     });
   },
 
   async isProjectMember(projectId: string, userId: string) {
     return prisma.projectMember.findFirst({
-      where:  { projectId, userId },
+      where: { projectId, userId },
       select: { role: true },
     });
   },

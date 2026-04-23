@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type {
   CreateProjectDto,
   UpdateProjectDto,
@@ -10,6 +9,7 @@ import { ValidationError } from './project.types.js';
 import { projectListInclude, projectMemberInclude } from './project.selects.js';
 import { ProjectAccess } from './project.access.js';
 import { SlugService } from '../../services/slug.service.js';
+import { ProjectStatus } from '@prisma/client';
 
 export const ProjectMutation = {
   async createProject(data: CreateProjectDto) {
@@ -34,16 +34,25 @@ export const ProjectMutation = {
     });
   },
 
-  async updateProject(userId: string, projectId: string, data: UpdateProjectDto) {
-    await ProjectAccess.assertProjectAdminAccess(userId, projectId);
+ async updateProject(userId: string, projectId: string, data: UpdateProjectDto) {
+  await ProjectAccess.assertProjectAdminAccess(userId, projectId);
 
-    return prisma.project.update({
-      where:   { id: projectId },
-      data,
-      include: projectListInclude,
-    });
-  },
+  const updateData: any = { ...data };
 
+  if (data.status === ProjectStatus.COMPLETED) {
+    updateData.completedAt = new Date();
+  }
+
+  if (data.status && data.status !== ProjectStatus.COMPLETED) {
+    updateData.completedAt = null; // optional but recommended
+  }
+
+  return prisma.project.update({
+    where: { id: projectId },
+    data: updateData,
+    include: projectListInclude,
+  });
+},
   async deleteProject(userId: string, projectId: string): Promise<void> {
     await ProjectAccess.assertProjectAdminAccess(userId, projectId);
 

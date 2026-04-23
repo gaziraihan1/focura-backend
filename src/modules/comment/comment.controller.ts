@@ -1,23 +1,20 @@
-
 import type { Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../../middleware/auth.js';
 import { CommentQuery }    from './comment.query.js';
 import { CommentMutation } from './comment.mutation.js';
 import { CommentActivity } from './comment.activity.js';
-import { prisma } from '../../index.js';
+import { prisma }          from '../../lib/prisma.js';
 import { taskForActivitySelect } from './comment.selects.js';
 import { createCommentSchema, updateCommentSchema } from './comment.validators.js';
-import { notifyMentions, notifyTaskAssignees, notifyUser } from '../notification/index.js';
+import { notifyMentions, notifyUser } from '../notification/index.js';
 import { stripMentionSyntax } from './mention/mention.utils.js';
-import { NotificationMutation } from '../notification/notification.mutation.js';
 
 function handleError(res: Response, label: string, error: unknown): void {
   if (error instanceof z.ZodError) {
     res.status(400).json({ success: false, message: 'Validation error', errors: error.issues });
     return;
   }
-
   if (error instanceof Error) {
     const msg = error.message;
     if (msg === 'Comment not found' || msg === 'Task not found or access denied') {
@@ -30,7 +27,6 @@ function handleError(res: Response, label: string, error: unknown): void {
     }
     return;
   }
-
   console.error(`${label} error:`, error);
   res.status(500).json({ success: false, message: `Failed to ${label}` });
 }
@@ -44,7 +40,6 @@ export const getComments = async (req: AuthRequest, res: Response) => {
   }
 };
 
-
 export const addComment = async (req: AuthRequest, res: Response) => {
   try {
     const { taskId } = req.params;
@@ -52,106 +47,105 @@ export const addComment = async (req: AuthRequest, res: Response) => {
 
     const comment = await CommentMutation.createComment(
       { taskId, userId: req.user!.id, ...body },
-      async ({ commentId, content, parentId }) => {
-        const task = await prisma.task.findUnique({
-          where:  { id: taskId },
-          select: taskForActivitySelect,
-        });
+      async ({ commentId, content, parentId, mentionedIds }) => {
+        // Fetch task + parent comment CONCURRENTLY — was sequential before
+        const [task, parentComment] = await Promise.all([
+          prisma.task.findUnique({
+            where:  { id: taskId },
+            select: taskForActivitySelect,
+          }),
+          parentId
+            ? prisma.comment.findUnique({
+                where:  { id: parentId },
+                select: { userId: true, user: { select: { notifications: true } } },
+              })
+            : Promise.resolve(null),
+        ]);
 
         if (!task?.project?.workspaceId) return;
-        const workspaceId = task.project.workspaceId;
-        const plainContent = stripMentionSyntax(content!);
+
+        const workspaceId  = task.project.workspaceId;
+        const plainContent = stripMentionSyntax(content);
         const senderName   = req.user!.name ?? 'Someone';
         const actionUrl    = `/dashboard/tasks/${taskId}`;
 
-        // ── Activity log
-        void CommentActivity.logCreated({
-          commentId,
-          taskId,
-          taskTitle:      task.title,
-          userId:         req.user!.id,
-          workspaceId,
-          commentPreview: plainContent.substring(0, 100),
-        });
+        // Track notified users to prevent duplicates
+        const notifiedIds = new Set([req.user!.id]);
 
-        // ── Notify task creator (skip if they are the commenter)
-        if (
-          task.createdById !== req.user!.id &&
-          task.createdBy?.notifications
-        ) {
-          void notifyUser({
-            userId:   task.createdById,
-            senderId: req.user!.id,
-            type:     'TASK_COMMENTED',
-            title:    'New comment on your task',
-            message:  `${senderName} commented on "${task.title}"`,
-            actionUrl,
-          });
-        }
+        // Build all notification promises and fire together
+        const jobs: Promise<unknown>[] = [
+          CommentActivity.logCreated({
+            commentId,
+            taskId,
+            taskTitle:      task.title,
+            userId:         req.user!.id,
+            workspaceId,
+            commentPreview: plainContent.substring(0, 100),
+          }),
+        ];
 
-        // ── Notify assignees — skip commenter AND creator (already notified above)
-        const assigneesToNotify = (task.assignees ?? []).filter(
-          (a) =>
-            a.userId !== req.user!.id &&
-            a.userId !== task.createdById &&
-            a.user?.notifications
-        );
-
-        void Promise.allSettled(
-          assigneesToNotify.map((a) =>
+        // Task creator
+        if (!notifiedIds.has(task.createdById) && task.createdBy?.notifications) {
+          notifiedIds.add(task.createdById);
+          jobs.push(
             notifyUser({
-              userId:   a.userId,
+              userId:   task.createdById,
               senderId: req.user!.id,
               type:     'TASK_COMMENTED',
-              title:    'New comment on a task',
+              title:    'New comment on your task',
               message:  `${senderName} commented on "${task.title}"`,
               actionUrl,
-            })
-          )
-        );
-
-        // ── Mention notifications
-        if (content) {
-          void notifyMentions({
-            text:       content,
-            workspaceId,
-            senderId:   req.user!.id,
-            senderName,
-            context:    `a comment on "${task.title}"`,
-            actionUrl,
-          });
+            }),
+          );
         }
 
-        // ── Reply notification — notify parent comment author
-        // Skip if they are the commenter, already notified as creator,
-        // or already notified as assignee
-        if (parentId) {
-          const parent = await prisma.comment.findUnique({
-            where:  { id: parentId },
-            select: { userId: true, user: { select: { notifications: true } } },
-          });
+        // Assignees
+        for (const a of task.assignees ?? []) {
+          if (!notifiedIds.has(a.userId) && a.user?.notifications) {
+            notifiedIds.add(a.userId);
+            jobs.push(
+              notifyUser({
+                userId:   a.userId,
+                senderId: req.user!.id,
+                type:     'TASK_COMMENTED',
+                title:    'New comment on a task',
+                message:  `${senderName} commented on "${task.title}"`,
+                actionUrl,
+              }),
+            );
+          }
+        }
 
-          const alreadyNotified = new Set([
-            req.user!.id,
-            task.createdById,
-            ...assigneesToNotify.map((a) => a.userId),
-          ]);
-
-          if (
-            parent &&
-            !alreadyNotified.has(parent.userId) &&
-            parent.user.notifications
-          ) {
-            void notifyUser({
-              userId:   parent.userId,
+        // Parent comment author (reply)
+        if (parentComment && !notifiedIds.has(parentComment.userId) && parentComment.user.notifications) {
+          jobs.push(
+            notifyUser({
+              userId:   parentComment.userId,
               senderId: req.user!.id,
               type:     'TASK_COMMENTED',
               title:    'New reply on your comment',
               message:  `${senderName} replied to your comment on "${task.title}"`,
               actionUrl,
-            });
-          }
+            }),
+          );
         }
+
+        // Mentions
+        if (content) {
+          jobs.push(
+            notifyMentions({
+              text:       content,
+              workspaceId,
+              senderId:   req.user!.id,
+              senderName,
+              context:    `a comment on "${task.title}"`,
+              actionUrl,
+            }),
+          );
+        }
+
+        // All notifications fire in parallel, failures isolated
+        void Promise.allSettled(jobs);
       },
     );
 
@@ -171,20 +165,19 @@ export const updateComment = async (req: AuthRequest, res: Response) => {
       async ({ oldContent, newContent }) => {
         const task = await prisma.task.findUnique({
           where:  { id: taskId },
-          select: taskForActivitySelect,
+          select: { title: true, project: { select: { workspaceId: true } } },
         });
+        if (!task?.project?.workspaceId) return;
 
-        if (task?.project?.workspaceId) {
-          void CommentActivity.logUpdated({
-            commentId,
-            taskId,
-            taskTitle:   task.title,
-            userId:      req.user!.id,
-            workspaceId: task.project.workspaceId,
-            oldContent:  oldContent!.substring(0, 50),
-            newContent:  newContent!.substring(0, 50),
-          });
-        }
+        void CommentActivity.logUpdated({
+          commentId,
+          taskId,
+          taskTitle:   task.title,
+          userId:      req.user!.id,
+          workspaceId: task.project.workspaceId,
+          oldContent:  oldContent!.substring(0, 50),
+          newContent:  newContent!.substring(0, 50),
+        });
       },
     );
 
@@ -203,19 +196,18 @@ export const deleteComment = async (req: AuthRequest, res: Response) => {
       async ({ content }) => {
         const task = await prisma.task.findUnique({
           where:  { id: taskId },
-          select: taskForActivitySelect,
+          select: { title: true, project: { select: { workspaceId: true } } },
         });
+        if (!task?.project?.workspaceId) return;
 
-        if (task?.project?.workspaceId) {
-          void CommentActivity.logDeleted({
-            commentId,
-            taskId,
-            taskTitle:      task.title,
-            userId:         req.user!.id,
-            workspaceId:    task.project.workspaceId,
-            commentContent: content!.substring(0, 100),
-          });
-        }
+        void CommentActivity.logDeleted({
+          commentId,
+          taskId,
+          taskTitle:      task.title,
+          userId:         req.user!.id,
+          workspaceId:    task.project.workspaceId,
+          commentContent: content!.substring(0, 100),
+        });
       },
     );
 

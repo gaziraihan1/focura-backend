@@ -1,4 +1,3 @@
-
 import type { Response } from 'express';
 import { z } from 'zod';
 import type { AuthRequest } from '../../middleware/auth.js';
@@ -19,7 +18,7 @@ import {
 
 function handleError(error: unknown, res: Response): void {
   if (error instanceof z.ZodError) {
-    res.status(400).json({
+    res.status(422).json({
       success: false,
       message: 'Validation error',
       errors:  error.issues.map((e) => ({ field: e.path.join('.'), message: e.message })),
@@ -37,8 +36,14 @@ function handleError(error: unknown, res: Response): void {
     return;
   }
 
+  // Business logic validation (duplicate member, not in workspace, etc.) → 400
   if (error instanceof ValidationError || error instanceof ProjectError) {
     res.status(400).json({ success: false, message: (error as Error).message });
+    return;
+  }
+
+  if ((error as any)?.code === 'P2002') {
+    res.status(409).json({ success: false, message: 'A record with that value already exists.' });
     return;
   }
 
@@ -75,7 +80,10 @@ export const getProjectBySlug = async (req: AuthRequest, res: Response) => {
 
 export const getProjectsByWorkspace = async (req: AuthRequest, res: Response) => {
   try {
-    const projects = await ProjectQuery.getProjectsByWorkspace(req.user!.id, req.params.workspaceId);
+    const projects = await ProjectQuery.getProjectsByWorkspace(
+      req.user!.id,
+      req.params.workspaceId,
+    );
     res.json({ success: true, data: projects });
   } catch (error) {
     handleError(error, res);
@@ -116,7 +124,9 @@ export const deleteProject = async (req: AuthRequest, res: Response) => {
 export const addProjectMember = async (req: AuthRequest, res: Response) => {
   try {
     const data   = addProjectMemberSchema.parse(req.body);
-    const member = await ProjectMutation.addProjectMember(req.user!.id, req.params.projectId, data);
+    const member = await ProjectMutation.addProjectMember(
+      req.user!.id, req.params.projectId, data,
+    );
 
     res.status(201).json({ success: true, data: member, message: 'Member added successfully' });
   } catch (error) {

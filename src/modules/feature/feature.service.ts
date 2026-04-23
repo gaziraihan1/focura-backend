@@ -47,12 +47,17 @@ export const FeatureService = {
     const feature = await FeatureRepository.findById(id, null);
     if (!feature) throw new Error('NOT_FOUND: Feature request not found');
 
-    // Only APPROVED and PLANNED features are open for voting
-    if (feature.status !== 'APPROVED' && feature.status !== 'PLANNED')
-      throw new Error('BAD_REQUEST: Voting is only allowed on approved or planned features');
-
+    
     const action = await FeatureRepository.vote(id, userId, type);
     const updated = await FeatureRepository.findById(id, userId);
     return { action, feature: updated };
   },
+  async removeVote(id: string, userId: string) {
+  const feature = await FeatureRepository.findById(id, null);
+  if (!feature) throw new Error('NOT_FOUND: Feature request not found');
+
+  await FeatureRepository.removeVote(id, userId);
+
+  return { success: true };
+}
 };

@@ -8,6 +8,7 @@ import {
   deleteFeatureRequest,
   castVote,
   getAdminContext,
+  removeVote
 } from './feature.controller.js';
 import { getFocuraAdminIds, isFocuraAdmin } from '../../config/admin.config.js';
 
@@ -29,3 +30,4 @@ featureRouter.get(   '/:id',            getFeatureRequest);
 featureRouter.patch( '/:id/status',     updateFeatureStatus);
 featureRouter.delete('/:id',            deleteFeatureRequest);
 featureRouter.post(  '/:id/vote',       castVote);
+featureRouter.delete('/:id/vote',       removeVote)

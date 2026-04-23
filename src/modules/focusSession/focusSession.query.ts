@@ -1,5 +1,4 @@
-
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import type { GetFocusHistoryInput } from './focusSession.types.js';
 import { sessionWithSlimTask, sessionWithIdTitle } from './focusSession.selects.js';
 

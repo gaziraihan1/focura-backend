@@ -3,7 +3,7 @@ import { Response }        from 'express';
 import { BillingService } from './billing.service.js';
 import { BillingCycle }   from '@prisma/client';
 import { AuthRequest } from '../../middleware/auth.js';
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 
 // ---------------------------------------------------------------------------
 // Error handler — mirrors AnalyticsController pattern

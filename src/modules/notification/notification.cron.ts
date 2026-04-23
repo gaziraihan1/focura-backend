@@ -1,8 +1,8 @@
 import cron        from 'node-cron';
-import { prisma }  from '../../index.js';
 import { redis }   from '../../lib/redis.js';
 import { notifyUser }            from './notification.helpers.js';
 import { NotificationMutation }  from './notification.mutation.js';
+import { prisma } from '../../lib/prisma.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -164,7 +164,6 @@ async function processPendingNotifs(pending: PendingNotif[]): Promise<number> {
 
 
 async function runTaskReminderCron(): Promise<void> {
-  console.log('🔔 Running task reminder cron job…');
 
   const now   = Date.now();
   let   total = 0;

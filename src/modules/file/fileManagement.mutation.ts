@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { FileManagementAccess } from './fileManagement.access.js';
 
 export const FileManagementMutation = {

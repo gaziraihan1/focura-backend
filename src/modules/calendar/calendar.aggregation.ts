@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import type { CalendarDayAggregate } from "./calendar.types.js";
 import type { CalendarFilters } from "./calendar.types.js";
 import {
@@ -14,7 +14,8 @@ export const CalendarAggregation = {
   ): Promise<CalendarDayAggregate[]> {
     const { userId, workspaceId, startDate, endDate } = filters;
 
-    const existing = await prisma.calendarDayAggregate.findMany({
+    // 1. Fetch existing aggregates
+    let existing = await prisma.calendarDayAggregate.findMany({
       where: {
         userId,
         date: { gte: startDate, lte: endDate },
@@ -24,21 +25,38 @@ export const CalendarAggregation = {
 
     if (existing.length === 0) {
       await this.computeRange(userId, workspaceId, startDate, endDate);
-      return this.getOrComputeAggregates(filters);
+
+      return prisma.calendarDayAggregate.findMany({
+        where: {
+          userId,
+          date: { gte: startDate, lte: endDate },
+        },
+        orderBy: { date: "asc" },
+      });
     }
 
     const existingDates = new Set(
       existing.map((agg) => agg.date.toISOString().split("T")[0]),
     );
-    const missing = generateDateRange(startDate, endDate).filter(
+
+    const missingDates = generateDateRange(startDate, endDate).filter(
       (d) => !existingDates.has(d.toISOString().split("T")[0]),
     );
 
-    if (missing.length > 0) {
-      await Promise.all(
-        missing.map((date) => this.recalculateDay(userId, workspaceId, date)),
-      );
-      return this.getOrComputeAggregates(filters);
+    // 4. Compute only missing dates (sequential to avoid deadlocks)
+    if (missingDates.length > 0) {
+      for (const date of missingDates) {
+        await this.recalculateDay(userId, workspaceId, date);
+      }
+
+      // Re-fetch once (NO recursion)
+      existing = await prisma.calendarDayAggregate.findMany({
+        where: {
+          userId,
+          date: { gte: startDate, lte: endDate },
+        },
+        orderBy: { date: "asc" },
+      });
     }
 
     return existing;
@@ -51,9 +69,11 @@ export const CalendarAggregation = {
     endDate: Date,
   ): Promise<void> {
     const dates = generateDateRange(startDate, endDate);
-    await Promise.all(
-      dates.map((date) => this.recalculateDay(userId, workspaceId, date)),
-    );
+
+    // Sequential execution → avoids DB deadlocks in tests
+    for (const date of dates) {
+      await this.recalculateDay(userId, workspaceId, date);
+    }
   },
 
   async recalculateDay(
@@ -63,6 +83,15 @@ export const CalendarAggregation = {
   ): Promise<void> {
     const dayStart = normalizeDate(date);
     const dayEnd = endOfDay(date);
+
+    const userExists = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+
+    if (!userExists) {
+      return;
+    }
 
     const [
       capacity,
@@ -121,24 +150,33 @@ export const CalendarAggregation = {
     ]);
 
     const dailyCapacity = capacity?.dailyCapacityHours ?? 8;
+
     const totalTasks = tasks.length;
+
     const dueTasks = tasks.filter(
       (t) => t.dueDate && t.dueDate >= dayStart && t.dueDate <= dayEnd,
     ).length;
+
     const criticalTasks = tasks.filter(
       (t) => t.priority === "URGENT" || t.priority === "HIGH",
     ).length;
+
     const milestoneCount = milestones.length;
 
     const plannedHours = tasks.reduce(
       (sum, t) => sum + (t.estimatedHours ?? 0),
       0,
     );
+
     const actualHours = timeEntries.reduce(
       (sum, e) => sum + e.duration / 60,
       0,
     );
-    const focusMinutes = focusSessions.reduce((sum, s) => sum + s.duration, 0);
+
+    const focusMinutes = focusSessions.reduce(
+      (sum, s) => sum + s.duration,
+      0,
+    );
 
     const focusRequiredTasks = tasks.filter((t) => t.focusRequired).length;
 

@@ -2,7 +2,7 @@ import type { Response } from 'express';
 import { z }             from 'zod';
 import type { AuthRequest } from '../../middleware/auth.js';
 import { AnnouncementService } from './announcement.service.js';
-import { prisma }              from '../../index.js';
+import { prisma }              from '../../lib/prisma.js';
 import { notifyWorkspaceMembers, notifyUser } from '../notification/notification.helpers.js';
 import {
   createAnnouncementSchema,

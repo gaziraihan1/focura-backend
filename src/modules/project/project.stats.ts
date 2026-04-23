@@ -1,4 +1,3 @@
-
 import type { ProjectForStats, ProjectStats } from './project.types.js';
 
 export function calculateProjectStats(project: ProjectForStats): ProjectStats {

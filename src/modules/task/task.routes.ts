@@ -10,6 +10,7 @@ import {
   deleteTask,
   getPersonalQuota,
   getWorkspaceQuota,
+  getTaskOverview,
 } from './task.controller.js';
 import { commentRouter } from '../comment/index.js';
 import {
@@ -28,6 +29,7 @@ router.get('/quota/workspace/:workspaceId',    getWorkspaceQuota);
 router.get('/stats',        getTaskStats);
 router.get('/',             getTasks);
 router.post('/',            createTask);
+router.get('/:id/overview', getTaskOverview);
 router.get('/:id',          getTask);
 router.put('/:id',          updateTask);
 router.patch('/:id/status', updateTaskStatus);

@@ -1,4 +1,3 @@
-
 export interface FileWithDetails {
   id: string;
   name: string;

@@ -1,4 +1,4 @@
-import { prisma } from "../../index.js";
+import { prisma } from "../../lib/prisma.js";
 import crypto from "crypto";
 import { sendInvitationEmail } from "../../utils/email.js";
 import { WorkspaceAccess } from "./workspace.access.js";

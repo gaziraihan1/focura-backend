@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.js';
-import { prisma } from '../index.js';
+import { prisma } from '../lib/prisma.js';
 
 export const getUserProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -30,17 +30,6 @@ export const getUserProfile = async (req: AuthRequest, res: Response): Promise<v
             name: true,
             plan: true,
             maxStorage: true,
-          },
-        },
-        workspaceMembers: {
-          select: {
-            workspace: {
-              select: {
-                id: true,
-                name: true,
-                plan: true,
-              },
-            },
           },
         },
       },
@@ -126,8 +115,6 @@ export const updateUserProfile = async (req: AuthRequest, res: Response): Promis
         updatedAt: true,
       },
     });
-
-    console.log('✅ Profile updated successfully for user:', req.user.id);
 
     res.status(200).json({
       success: true,

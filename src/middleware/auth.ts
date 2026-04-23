@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import path from "path";
-import { prisma } from "../index.js";
+import { prisma } from "../lib/prisma.js";
 
 export interface AuthRequest extends Request {
   user?: {

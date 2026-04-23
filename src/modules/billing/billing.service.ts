@@ -4,7 +4,7 @@
 // All payment operations go through getPaymentProvider() → IPaymentProvider.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 import { getPaymentProvider } from '../../payment/provider.registry.js';
 import { BILLING_CACHE } from '../../redis/redis.client.js';
 import { APP_URL, PLAN_LIMITS, PlanName } from './plans.config.js';

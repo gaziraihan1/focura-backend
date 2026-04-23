@@ -1,10 +1,9 @@
-
 import {
   notifyUser,
   notifyTaskAssignees,
   notifyMentions,
 } from '../notification/index.js';
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 
 export const TaskNotifications = {
   async notifyNewAssignees(params: {

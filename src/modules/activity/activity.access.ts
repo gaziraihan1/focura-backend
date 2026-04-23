@@ -1,5 +1,5 @@
 
-import { prisma } from '../../index.js';
+import { prisma } from '../../lib/prisma.js';
 
 export const ActivityAccess = {
   async canAccessWorkspace(userId: string, workspaceId: string): Promise<boolean> {
