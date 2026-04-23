@@ -31,17 +31,6 @@ jobs:
           - 6379:6379
         options: >-
           --health-cmd="redis-cli ping"
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -58,7 +47,7 @@ jobs:
       JWT_PRIVATE_KEY_PATH: ./keys/private.pem
       JWT_PUBLIC_KEY_PATH: ./keys/public.pem
 
-      NEXTAUTH_SECRET: {{ secrets.NEXTAUTH_SECRET }}
+      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
 
       STRIPE_SECRET_KEY: sk_test_fake_for_tests_only
       STRIPE_WEBHOOK_SECRET: whsec_fake_for_tests_only
@@ -78,7 +67,7 @@ jobs:
 
       FOCURA_ADMIN_IDS: cmnie0eka0000h50qi8aqsreo
 
-      ACCESS_TOKEN_SECRET: {{ secrets.ACCESS_TOKEN_SECRET }}
+      ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
 
     steps:
       - name: Checkout repository
@@ -88,7 +77,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -102,17 +91,26 @@ jobs:
       - name: Wait for PostgreSQL
         run: |
           for i in {1..30}; do
-            nc -z localhost 5432 && echo "DB ready" && break
-            echo "Waiting for DB..."
+            nc -z localhost 5432 && echo "Postgres ready" && exit 0
+            echo "Waiting for Postgres..."
             sleep 2
           done
+          exit 1
 
-      - name: Run Prisma generate
-      - name: Run Prisma generate
+      - name: Wait for Redis
+        run: |
+          for i in {1..20}; do
+            nc -z localhost 6379 && echo "Redis ready" && exit 0
+            echo "Waiting for Redis..."
+            sleep 2
+          done
+          exit 1
+
+      - name: Generate Prisma client
         run: npx prisma generate
 
       - name: Run Prisma migrations
         run: npx prisma migrate deploy
 
-      - name: Run tests (serial mode for stability)
+      - name: Run tests (stable mode)
         run: npm test -- --runInBand --detectOpenHandles --forceExit
