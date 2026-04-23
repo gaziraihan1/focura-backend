@@ -20,20 +20,20 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
 
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
 
     steps:
       - name: Checkout repository
@@ -45,114 +45,103 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y netcat-openbsd openssl
+
       - name: Install dependencies
         run: npm ci
 
-      # ✅ Ensure Postgres is ready
+      # ─────────────────────────────────────────────
+      # WAIT FOR SERVICES
+      # ─────────────────────────────────────────────
       - name: Wait for PostgreSQL
         run: |
           for i in {1..30}; do
             nc -z localhost 5432 && echo "Postgres ready" && exit 0
-            echo "Waiting for Postgres..."
             sleep 2
           done
-          exit 1
+          echo "Postgres failed to start" && exit 1
 
-      # ✅ Ensure Redis is ready
       - name: Wait for Redis
         run: |
           for i in {1..20}; do
             nc -z localhost 6379 && echo "Redis ready" && exit 0
-            echo "Waiting for Redis..."
             sleep 2
           done
-          exit 1
+          echo "Redis failed to start" && exit 1
 
-      # ✅ Create env file for Vitest
-      - name: Write .env.test
+      # ─────────────────────────────────────────────
+      # ENV VARIABLES (SAFE APPEND METHOD)
+      # ─────────────────────────────────────────────
+      - name: Set environment variables
         run: |
-          cat > .env.test << 'EOF'
-          NODE_ENV=test
-          PORT=5001
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+          echo "PORT=5001" >> $GITHUB_ENV
 
-          TEST_DATABASE_URL=postgresql://postgres:test_password@localhost:5432/focura_test
-          DATABASE_URL=postgresql://postgres:test_password@localhost:5432/focura_test
-          DIRECT_URL=postgresql://postgres:test_password@localhost:5432/focura_test
+          echo "DATABASE_URL=postgresql://postgres:test_password@localhost:5432/focura_test" >> $GITHUB_ENV
+          echo "DIRECT_URL=postgresql://postgres:test_password@localhost:5432/focura_test" >> $GITHUB_ENV
+          echo "TEST_DATABASE_URL=postgresql://postgres:test_password@localhost:5432/focura_test" >> $GITHUB_ENV
 
-          JWT_PRIVATE_KEY_PATH=./keys/private.pem
-          JWT_PUBLIC_KEY_PATH=./keys/public.pem
+          echo "REDIS_URL=redis://127.0.0.1:6379" >> $GITHUB_ENV
 
-          NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}
+          echo "JWT_PRIVATE_KEY_PATH=./keys/private.pem" >> $GITHUB_ENV
+          echo "JWT_PUBLIC_KEY_PATH=./keys/public.pem" >> $GITHUB_ENV
 
-          REDIS_URL=redis://127.0.0.1:6379
+          echo "NEXTAUTH_SECRET=${{ secrets.NEXTAUTH_SECRET }}" >> $GITHUB_ENV
+          echo "ACCESS_TOKEN_SECRET=${{ secrets.ACCESS_TOKEN_SECRET }}" >> $GITHUB_ENV
 
-          STRIPE_SECRET_KEY=sk_test_fake_for_tests_only
-          STRIPE_WEBHOOK_SECRET=whsec_fake_for_tests_only
-          STRIPE_PRICE_PRO_MONTHLY=price_fake_pro_monthly
-          STRIPE_PRICE_PRO_YEARLY=price_fake_pro_yearly
-          STRIPE_PRICE_BUSINESS_MONTHLY=price_fake_business_monthly
-          STRIPE_PRICE_BUSINESS_YEARLY=price_fake_business_yearly
+          echo "STRIPE_SECRET_KEY=sk_test_fake_for_tests_only" >> $GITHUB_ENV
+          echo "STRIPE_WEBHOOK_SECRET=whsec_fake_for_tests_only" >> $GITHUB_ENV
 
-          CLOUDINARY_CLOUD_NAME=test
-          CLOUDINARY_API_KEY=test
-          CLOUDINARY_API_SECRET=test
+          echo "STRIPE_PRICE_PRO_MONTHLY=price_fake" >> $GITHUB_ENV
+          echo "STRIPE_PRICE_PRO_YEARLY=price_fake" >> $GITHUB_ENV
+          echo "STRIPE_PRICE_BUSINESS_MONTHLY=price_fake" >> $GITHUB_ENV
+          echo "STRIPE_PRICE_BUSINESS_YEARLY=price_fake" >> $GITHUB_ENV
 
-          CLIENT_URL=http://localhost:3000
-          FRONTEND_URL=http://localhost:3000
+          echo "CLOUDINARY_CLOUD_NAME=test" >> $GITHUB_ENV
+          echo "CLOUDINARY_API_KEY=test" >> $GITHUB_ENV
+          echo "CLOUDINARY_API_SECRET=test" >> $GITHUB_ENV
 
-          PAYMENT_PROVIDER=STRIPE
+          echo "CLIENT_URL=http://localhost:3000" >> $GITHUB_ENV
+          echo "FRONTEND_URL=http://localhost:3000" >> $GITHUB_ENV
 
-          FOCURA_ADMIN_IDS=cmnie0eka0000h50qi8aqsreo
+          echo "PAYMENT_PROVIDER=STRIPE" >> $GITHUB_ENV
+          echo "FOCURA_ADMIN_IDS=cmnie0eka0000h50qi8aqsreo" >> $GITHUB_ENV
 
-          ACCESS_TOKEN_SECRET=${{ secrets.ACCESS_TOKEN_SECRET }}
-          EOF
-
-      # ✅ Generate RSA keys (required for auth tests)
+      # ─────────────────────────────────────────────
+      # RSA KEYS
+      # ─────────────────────────────────────────────
       - name: Generate RSA keys
         run: |
           mkdir -p keys
           openssl genrsa -out keys/private.pem 2048
           openssl rsa -in keys/private.pem -pubout -out keys/public.pem
 
-      - name: Verify keys exist
+      - name: Verify keys
         run: |
-          test -f keys/private.pem || exit 1
-          test -f keys/public.pem || exit 1
+          test -f keys/private.pem
+          test -f keys/public.pem
 
-      # ✅ Load env BEFORE Prisma (CRITICAL FIX)
+      # ─────────────────────────────────────────────
+      # PRISMA
+      # ─────────────────────────────────────────────
       - name: Generate Prisma client
-        run: |
-          export $(grep -v '^#' .env.test | xargs)
-          npx prisma generate
-          env:
-            DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
-            DIRECT_URL: postgresql://postgres:test_password@localhost:5432/focura_test
+        run: npx prisma generate
 
-      - name: Run Prisma migrations
-        run: |
-          export $(grep -v '^#' .env.test | xargs)
-          npx prisma migrate deploy
-          env:
-            DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
-            DIRECT_URL: postgresql://postgres:test_password@localhost:5432/focura_test
+      - name: Run migrations
+        run: npx prisma migrate deploy
 
-      # ✅ Run tests (Vitest handles env internally)
+      # ─────────────────────────────────────────────
+      # TESTS
+      # ─────────────────────────────────────────────
       - name: Run tests
         run: npx vitest run --reporter=verbose
-        env:
-          NODE_ENV: test
-          DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
-          DIRECT_URL: postgresql://postgres:test_password@localhost:5432/focura_test
-          TEST_DATABASE_URL: postgresql://postgres:test_password@localhost:5432/focura_test
-          REDIS_URL: redis://127.0.0.1:6379
 
-          JWT_PRIVATE_KEY_PATH: ./keys/private.pem
-          JWT_PUBLIC_KEY_PATH: ./keys/public.pem
-
-          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
-          ACCESS_TOKEN_SECRET: ${{ secrets.ACCESS_TOKEN_SECRET }}
-
-      # ✅ Debug artifacts if failure
+      # ─────────────────────────────────────────────
+      # ARTIFACTS
+      # ─────────────────────────────────────────────
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
