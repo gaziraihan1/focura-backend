@@ -1,7 +1,22 @@
 import { Response } from 'express';
 import { AuthRequest } from '../../middleware/auth.js';
 import { AnalyticsQuery } from './analytics.query.js';
+import { prisma } from '../../lib/prisma.js';
 
+async function assertWorkspaceMember(workspaceId: string, userId: string) {
+  const member = await prisma.workspaceMember.findFirst({
+    where: {
+      workspaceId,
+      userId,
+    },
+  });
+
+  if (!member) {
+    throw new Error('ACCESS_DENIED');
+  }
+
+  return member;
+}
 export class AnalyticsController {
   private static handleAnalyticsError(error: any, res: Response) {
     console.error('Analytics error:', error);
@@ -29,6 +44,7 @@ export class AnalyticsController {
     }
 
     const { workspaceId } = req.params;
+        await assertWorkspaceMember(workspaceId, req.user.id);
 
     const results = await Promise.allSettled([
       AnalyticsQuery.getExecutiveKPIs(workspaceId, req.user.id),
