@@ -1,14 +1,23 @@
 // backend/src/payment/providers/paddle/paddle.provider.ts
 //
-// Paddle implementation stub.
-// Fill in each method when you're ready to switch — the interface guarantees
-// BillingService and all callers will work without any other changes.
-//
-// Paddle SDK: npm install @paddle/paddle-node-sdk
-// Docs: https://developer.paddle.com/
+// Paddle Billing provider — @paddle/paddle-node-sdk ^3.8.0
+// Paddle Billing is merchant-of-record: tax, VAT, invoicing all handled by Paddle.
+// Stripe stays in place; switch via PAYMENT_PROVIDER=paddle in .env.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// import { Paddle } from '@paddle/paddle-node-sdk';
+import {
+  EventName,
+  type SubscriptionCreatedEvent,
+  type SubscriptionUpdatedEvent,
+  type SubscriptionCanceledEvent,
+  type SubscriptionTrialingEvent,
+  type TransactionBilledEvent,
+  type TransactionCompletedEvent,
+  type TransactionCreatedEvent,
+  type TransactionPaymentFailedEvent,
+  type TransactionUpdatedEvent,
+} from '@paddle/paddle-node-sdk';
+import { BillingCycle } from '@prisma/client';
 import type {
   IPaymentProvider,
   CreateCustomerParams,
@@ -25,180 +34,393 @@ import type {
   NormalisedSubStatus,
   NormalisedInvoiceStatus,
 } from '../../IpaymentProvider.js';
-import { BillingCycle } from '@prisma/client';
+import {
+  paddle,
+  PADDLE_PRICE_IDS,
+  PADDLE_PRICE_TO_PLAN,
+  PADDLE_WEBHOOK_SECRET,
+} from '../../../modules/billing/config/paddle.js';
 
 // ---------------------------------------------------------------------------
-// Paddle client (uncomment when ready)
+// Webhook event data types — SDK uses *Event wrappers for webhook payloads.
+// The .data field on each event is the entity payload (matches entity shape
+// but typed separately in the SDK).
 // ---------------------------------------------------------------------------
 
-// const paddle = new Paddle(process.env.PADDLE_API_KEY!, {
-//   environment: process.env.PADDLE_ENV === 'production' ? 'production' : 'sandbox',
-// });
+type AnySubEventData =
+  | SubscriptionCreatedEvent['data']
+  | SubscriptionUpdatedEvent['data']
+  | SubscriptionCanceledEvent['data']
+  | SubscriptionTrialingEvent['data'];
 
-const PADDLE_WEBHOOK_SECRET = process.env.PADDLE_WEBHOOK_SECRET!;
+type AnyTxnEventData =
+  | TransactionCompletedEvent['data']
+  | TransactionPaymentFailedEvent['data']
+  | TransactionCreatedEvent['data']
+  | TransactionUpdatedEvent['data']
+  | TransactionBilledEvent['data'];
 
 // ---------------------------------------------------------------------------
-// Paddle status → normalised status map
-// Paddle subscription statuses: active | canceled | past_due | paused | trialing
+// Status maps
 // ---------------------------------------------------------------------------
 
-function mapPaddleSubStatus(status: string): NormalisedSubStatus {
+function mapSubStatus(status: string): NormalisedSubStatus {
   const map: Record<string, NormalisedSubStatus> = {
-    active:    'ACTIVE',
-    canceled:  'CANCELED',
-    past_due:  'PAST_DUE',
-    paused:    'PAUSED',
-    trialing:  'TRIALING',
+    active:   'ACTIVE',
+    canceled: 'CANCELED',
+    past_due: 'PAST_DUE',
+    paused:   'PAUSED',
+    trialing: 'TRIALING',
   };
   return map[status] ?? 'INCOMPLETE';
 }
 
-function mapPaddleInvoiceStatus(status: string): NormalisedInvoiceStatus {
+function mapInvoiceStatus(status: string): NormalisedInvoiceStatus {
   const map: Record<string, NormalisedInvoiceStatus> = {
-    billed:   'OPEN',
-    paid:     'PAID',
-    canceled: 'VOID',
-    past_due: 'UNCOLLECTIBLE',
+    draft:     'DRAFT',
+    ready:     'OPEN',
+    billed:    'OPEN',
+    paid:      'PAID',
+    completed: 'PAID',
+    canceled:  'VOID',
+    past_due:  'UNCOLLECTIBLE',
   };
   return map[status] ?? 'DRAFT';
 }
 
-function mapPaddleBillingCycle(interval: string): BillingCycle {
+function mapBillingCycle(interval: string | undefined): BillingCycle {
   return interval === 'year' ? 'YEARLY' : 'MONTHLY';
 }
 
 // ---------------------------------------------------------------------------
-// Paddle provider implementation
+// Price ID resolver
+// ---------------------------------------------------------------------------
+
+function resolvePriceId(planName: string, billingCycle: BillingCycle): string {
+  const prices = PADDLE_PRICE_IDS[planName];
+  if (!prices) throw new Error(`[PaddleProvider] No price config for plan: ${planName}`);
+
+  const priceId = billingCycle === 'YEARLY' ? prices.yearly : prices.monthly;
+  if (!priceId) {
+    throw new Error(`[PaddleProvider] Missing env var PADDLE_PRICE_${planName}_${billingCycle}`);
+  }
+  return priceId;
+}
+
+// ---------------------------------------------------------------------------
+// Safe date helper
+// ---------------------------------------------------------------------------
+
+function toDate(value: string | null | undefined, fallback = new Date()): Date {
+  if (!value) return fallback;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? fallback : d;
+}
+
+// ---------------------------------------------------------------------------
+// Subscription event data → NormalisedSubscriptionEvent fields
+// Subscription entity fields confirmed from SDK source:
+//   canceledAt, scheduledChange, currentBillingPeriod, customData, items
+// No trialDates on Subscription — trial end is stored in scheduledChange
+// for trialing subs; we read nextBilledAt as the trial end boundary.
+// ---------------------------------------------------------------------------
+
+function buildSubFields(
+  sub: AnySubEventData,
+  eventId: string,
+  raw: unknown,
+): Omit<NormalisedSubscriptionEvent, 'type'> {
+  const firstItem  = sub.items?.[0];
+  const priceId    = firstItem?.price?.id ?? '';
+  const planMeta   = PADDLE_PRICE_TO_PLAN.get(priceId);
+  const interval   = firstItem?.price?.billingCycle?.interval;
+  const customData = (sub.customData ?? {}) as Record<string, string>;
+
+  // Paddle surfaces trial end as nextBilledAt when status === 'trialing'
+  const trialEnd =
+    sub.status === 'trialing' && sub.nextBilledAt
+      ? toDate(sub.nextBilledAt)
+      : null;
+
+  return {
+    providerEventId:        eventId,
+    providerSubscriptionId: sub.id,
+    providerCustomerId:     sub.customerId,
+    providerPriceId:        priceId,
+    planName:               planMeta?.planName ?? customData.planName ?? 'PRO',
+    status:                 mapSubStatus(sub.status),
+    billingCycle:           mapBillingCycle(interval),
+    currentPeriodStart:     toDate(sub.currentBillingPeriod?.startsAt),
+    currentPeriodEnd:       toDate(
+      sub.currentBillingPeriod?.endsAt,
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    ),
+    cancelAtPeriodEnd: sub.scheduledChange?.action === 'cancel',
+    canceledAt:        sub.canceledAt ? toDate(sub.canceledAt) : null,
+    trialStart:        null, // not exposed in Paddle webhook subscription payload
+    trialEnd,
+    metadata:          customData,
+    raw,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PaddleProvider
 // ---------------------------------------------------------------------------
 
 export class PaddleProvider implements IPaymentProvider {
   readonly name = 'paddle';
 
-  // ---- Customer ------------------------------------------------------------
-  // NOTE: Paddle uses its own customer management via checkout.
-  // Customers are auto-created on first purchase. You can also create them
-  // explicitly via the Customers API.
+  // ── Customer ──────────────────────────────────────────────────────────────
 
   async createCustomer(params: CreateCustomerParams): Promise<CustomerResult> {
-    // TODO: implement when switching to Paddle
-    // const customer = await paddle.customers.create({
-    //   email:  params.email,
-    //   name:   params.name,
-    //   customData: params.metadata,
-    // });
-    // return { providerCustomerId: customer.id };
-
-    throw new Error('[PaddleProvider] createCustomer not yet implemented');
+    const customer = await paddle.customers.create({
+      email:      params.email,
+      name:       params.name,
+      customData: params.metadata,
+    });
+    return { providerCustomerId: customer.id };
   }
 
-  // ---- Checkout ------------------------------------------------------------
-  // Paddle uses client-side overlay checkout or hosted checkout links.
-  // For hosted checkout (closest to Stripe Checkout), use Transactions API.
+  // ── Checkout ──────────────────────────────────────────────────────────────
+  // Paddle uses Transactions for hosted checkout.
+  // customData carries workspaceId + ownerId so webhooks can provision correctly.
 
   async createCheckoutSession(params: CreateCheckoutParams): Promise<CheckoutResult> {
-    // TODO: implement when switching to Paddle
-    // Paddle price IDs follow the same env var convention:
-    //   PADDLE_PRICE_PRO_MONTHLY, PADDLE_PRICE_PRO_YEARLY, etc.
-    //
-    // const priceEnvKey = `PADDLE_PRICE_${params.planName}_${params.billingCycle}`;
-    // const priceId     = process.env[priceEnvKey];
-    // if (!priceId) throw new Error(`[PaddleProvider] No price for ${priceEnvKey}`);
-    //
-    // const transaction = await paddle.transactions.create({
-    //   items: [{ priceId, quantity: 1 }],
-    //   customerId: params.providerCustomerId,
-    //   customData: params.metadata,
-    //   checkout: {
-    //     url: params.successUrl,
-    //   },
-    // });
-    //
-    // return { url: transaction.checkout!.url! };
+    const priceId = resolvePriceId(params.planName, params.billingCycle);
 
-    throw new Error('[PaddleProvider] createCheckoutSession not yet implemented');
+    const transaction = await paddle.transactions.create({
+      customerId: params.providerCustomerId,
+      items:      [{ priceId, quantity: 1 }],
+      checkout:   { url: params.successUrl },
+      customData: {
+        workspaceId:  params.workspaceId,
+        ownerId:      params.ownerId,
+        planName:     params.planName,
+        billingCycle: params.billingCycle,
+      },
+    });
+
+    const url = transaction.checkout?.url;
+    if (!url) throw new Error('[PaddleProvider] Paddle returned no checkout URL');
+
+    return { url };
   }
 
-  // ---- Portal --------------------------------------------------------------
-  // Paddle has a Customer Portal. You get a portal session URL via the API.
+  // ── Portal ────────────────────────────────────────────────────────────────
 
   async createPortalSession(params: CreatePortalParams): Promise<PortalResult> {
-    // TODO: implement when switching to Paddle
-    // const session = await paddle.customerPortalSessions.create({
-    //   customerId: params.providerCustomerId,
-    // });
-    // return { url: session.urls.general.overview };
+    const session = await paddle.customerPortalSessions.create(
+      params.providerCustomerId,
+      [],
+    );
 
-    throw new Error('[PaddleProvider] createPortalSession not yet implemented');
+    const url = session.urls?.general?.overview;
+    if (!url) throw new Error('[PaddleProvider] Paddle returned no portal URL');
+
+    return { url };
   }
 
-  // ---- Plan change ---------------------------------------------------------
-  // Paddle calls this "updating a subscription". Proration is handled via
-  // the `prorationBillingMode` field.
+  // ── Plan change ───────────────────────────────────────────────────────────
 
   async changePlan(params: ChangePlanParams): Promise<void> {
-    // TODO: implement when switching to Paddle
-    // await paddle.subscriptions.update(params.providerSubscriptionId, {
-    //   items: [{ priceId: params.newProviderPriceId, quantity: 1 }],
-    //   prorationBillingMode: params.isUpgrade ? 'full_immediately' : 'do_not_bill',
-    //   customData: params.metadata,
-    // });
+    const sub = await paddle.subscriptions.get(params.providerSubscriptionId);
 
-    throw new Error('[PaddleProvider] changePlan not yet implemented');
+    // Paddle requires the full items array — replace all items with new price
+    const updatedItems = (sub.items ?? []).map((item) => ({
+      priceId:  params.newProviderPriceId,
+      quantity: item.quantity ?? 1,
+    }));
+
+    await paddle.subscriptions.update(params.providerSubscriptionId, {
+      items:               updatedItems,
+      prorationBillingMode: params.isUpgrade
+        ? 'prorated_immediately'
+        : 'prorated_next_billing_period',
+      customData: params.metadata,
+    });
   }
 
-  // ---- Cancel --------------------------------------------------------------
+  // ── Cancel ────────────────────────────────────────────────────────────────
 
   async cancelSubscription(params: CancelSubscriptionParams): Promise<void> {
-    // TODO: implement when switching to Paddle
-    // await paddle.subscriptions.cancel(params.providerSubscriptionId, {
-    //   effectiveFrom: params.immediately ? 'immediately' : 'next_billing_period',
-    // });
-
-    throw new Error('[PaddleProvider] cancelSubscription not yet implemented');
+    await paddle.subscriptions.cancel(params.providerSubscriptionId, {
+      effectiveFrom: params.immediately ? 'immediately' : 'next_billing_period',
+    });
   }
 
-  // ---- Reactivate ----------------------------------------------------------
+  // ── Reactivate ────────────────────────────────────────────────────────────
+  // Clears a scheduled cancellation — subscription continues as normal.
 
   async reactivateSubscription(params: ReactivateSubscriptionParams): Promise<void> {
-    // TODO: implement when switching to Paddle
-    // await paddle.subscriptions.activate(params.providerSubscriptionId);
-
-    throw new Error('[PaddleProvider] reactivateSubscription not yet implemented');
+    await paddle.subscriptions.update(params.providerSubscriptionId, {
+      scheduledChange: null,
+    });
   }
 
-  // ---- Webhook -------------------------------------------------------------
-  // Paddle sends webhook notifications signed with HMAC-SHA256.
+  // ── Webhook ───────────────────────────────────────────────────────────────
 
   async verifyAndParseWebhook(
     rawBody: Buffer,
     headers: Record<string, string | string[] | undefined>,
   ): Promise<NormalisedSubscriptionEvent | NormalisedInvoiceEvent | null> {
-    // TODO: implement when switching to Paddle
-    //
-    // 1. Verify signature:
-    //    const signature = headers['paddle-signature'] as string;
-    //    const isValid   = paddle.webhooks.isSignatureValid(rawBody, signature, PADDLE_WEBHOOK_SECRET);
-    //    if (!isValid) throw new Error('[PaddleProvider] Invalid webhook signature');
-    //
-    // 2. Parse event:
-    //    const event = JSON.parse(rawBody.toString());
-    //
-    // 3. Map Paddle event types to NormalisedEventType:
-    //    Paddle event types: transaction.completed, subscription.created,
-    //    subscription.updated, subscription.canceled, subscription.past_due
-    //
-    // 4. Map fields to NormalisedSubscriptionEvent / NormalisedInvoiceEvent
-    //    Key field mapping:
-    //      Stripe customerId     → Paddle event.data.customer_id
-    //      Stripe subscriptionId → Paddle event.data.id (for subscription events)
-    //      Stripe priceId        → Paddle event.data.items[0].price.id
-    //      Stripe metadata       → Paddle event.data.custom_data
-    //      Stripe period_start   → Paddle event.data.current_billing_period.starts_at
-    //      Stripe period_end     → Paddle event.data.current_billing_period.ends_at
-    //
-    // 5. Return the normalised event — the handler in webhook.router.ts
-    //    processes it identically regardless of provider.
+    const sig = headers['paddle-signature'];
+    const sigStr = Array.isArray(sig) ? sig[0] : (sig ?? '');
 
-    throw new Error('[PaddleProvider] verifyAndParseWebhook not yet implemented');
+    if (!sigStr)              throw new Error('[PaddleProvider] Missing paddle-signature header');
+    if (!PADDLE_WEBHOOK_SECRET) throw new Error('[PaddleProvider] PADDLE_WEBHOOK_SECRET not set');
+
+    const event = await paddle.webhooks.unmarshal(
+      rawBody.toString('utf-8'),
+      PADDLE_WEBHOOK_SECRET,
+      sigStr,
+    );
+
+    if (!event) throw new Error('[PaddleProvider] Invalid Paddle webhook signature');
+
+    const eventId = event.eventId;
+
+    switch (event.eventType) {
+
+      case EventName.SubscriptionCreated: {
+        const data = (event as SubscriptionCreatedEvent).data;
+        return { type: 'SUBSCRIPTION_CREATED', ...buildSubFields(data, eventId, event) };
+      }
+
+      case EventName.SubscriptionUpdated: {
+        const data = (event as SubscriptionUpdatedEvent).data;
+        return { type: 'SUBSCRIPTION_UPDATED', ...buildSubFields(data, eventId, event) };
+      }
+
+      case EventName.SubscriptionCanceled: {
+        const data = (event as SubscriptionCanceledEvent).data;
+        return { type: 'SUBSCRIPTION_CANCELED', ...buildSubFields(data, eventId, event) };
+      }
+
+      // SubscriptionTrialing fires when a subscription enters trial status.
+      // Maps to SUBSCRIPTION_TRIAL_ENDING in our normalised type so the handler
+      // can send "trial ending" emails — adjust mapping if you add TRIAL_STARTED.
+      case EventName.SubscriptionTrialing: {
+        const data = (event as SubscriptionTrialingEvent).data;
+        return { type: 'SUBSCRIPTION_TRIAL_ENDING', ...buildSubFields(data, eventId, event) };
+      }
+
+      case EventName.TransactionCompleted: {
+        const data = (event as TransactionCompletedEvent).data;
+        return this.normaliseTxnAsInvoice('INVOICE_PAID', data, eventId, event);
+      }
+
+      case EventName.TransactionPaymentFailed: {
+        const data = (event as TransactionPaymentFailedEvent).data;
+        return this.normaliseTxnAsInvoice('INVOICE_PAYMENT_FAILED', data, eventId, event);
+      }
+
+      case EventName.TransactionCreated: {
+        const data = (event as TransactionCreatedEvent).data;
+        return this.normaliseTxnAsInvoice('INVOICE_CREATED', data, eventId, event);
+      }
+
+      case EventName.TransactionUpdated: {
+        const data = (event as TransactionUpdatedEvent).data;
+        return this.normaliseTxnAsInvoice('INVOICE_UPDATED', data, eventId, event);
+      }
+
+      // TransactionBilled = checkout completed + subscription provisioned.
+      // Maps to CHECKOUT_COMPLETED so handleCheckoutCompleted() fires.
+      case EventName.TransactionBilled: {
+        const data       = (event as TransactionBilledEvent).data;
+        const customData = (data.customData ?? {}) as Record<string, string>;
+        const priceId    = data.items?.[0]?.price?.id ?? '';
+        const planMeta   = PADDLE_PRICE_TO_PLAN.get(priceId);
+        const interval   = data.items?.[0]?.price?.billingCycle?.interval;
+
+        return {
+          type:                   'CHECKOUT_COMPLETED',
+          providerEventId:        eventId,
+          providerSubscriptionId: data.subscriptionId ?? '',
+          providerCustomerId:     data.customerId ?? '',
+          providerPriceId:        priceId,
+          planName:               planMeta?.planName ?? customData.planName ?? 'PRO',
+          status:                 'ACTIVE',
+          billingCycle:           mapBillingCycle(interval),
+          currentPeriodStart:     toDate(data.billingPeriod?.startsAt),
+          currentPeriodEnd:       toDate(data.billingPeriod?.endsAt),
+          cancelAtPeriodEnd:      false,
+          canceledAt:             null,
+          trialStart:             null,
+          trialEnd:               null,
+          metadata:               customData,
+          raw:                    event,
+        } satisfies NormalisedSubscriptionEvent;
+      }
+
+      default:
+        console.log(`[PaddleProvider] Unhandled event type: ${event.eventType}`);
+        return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private: Paddle Transaction event data → NormalisedInvoiceEvent
+  //
+  // Transaction.invoiceId = Paddle invoice ID (inv_xxx) — not a PDF URL.
+  // PDF URL must be fetched on-demand via paddle.invoices.getPdf(invoiceId).
+  // We store invoiceId in invoiceNumber so billing.service can fetch it later.
+  // ---------------------------------------------------------------------------
+
+  private normaliseTxnAsInvoice(
+    type:    NormalisedInvoiceEvent['type'],
+    txn:     AnyTxnEventData,
+    eventId: string,
+    raw:     unknown,
+  ): NormalisedInvoiceEvent {
+    const customData = (txn.customData ?? {}) as Record<string, string>;
+    const totals     = txn.details?.totals;
+
+    const amountDue       = Number(totals?.total ?? 0);
+    // Use the last successful payment amount; fall back to 0
+    const lastPayment     = txn.payments?.[txn.payments.length - 1];
+    const amountPaid      = lastPayment?.amount ? Number(lastPayment.amount) : 0;
+    const amountRemaining = Math.max(0, amountDue - amountPaid);
+    const paidAt          = lastPayment?.capturedAt ? toDate(lastPayment.capturedAt) : null;
+
+    const paymentMethod     = lastPayment?.methodDetails;
+    const paymentMethodType = paymentMethod?.type ?? null;
+    const cardLast4         = paymentMethod?.card?.last4 ?? null;
+
+   const lineItems = (txn.details?.lineItems ?? []).map((li) => ({
+  description: li.product?.name ?? '',
+  amount:      Number(li.totals?.total ?? 0),
+  currency:    txn.currencyCode,
+  priceId:     li.priceId ?? null,
+}));
+    return {
+      type,
+      providerEventId:        eventId,
+      providerInvoiceId:      txn.id,
+      providerCustomerId:     txn.customerId ?? null,
+      providerSubscriptionId: txn.subscriptionId ?? null,
+      providerPaymentId:      lastPayment?.paymentAttemptId ?? null,
+      amountDue,
+      amountPaid,
+      amountRemaining,
+      currency:               (txn.currencyCode ?? 'USD').toLowerCase(),
+      status:                 mapInvoiceStatus(txn.status),
+      // invoiceNumber holds Paddle's human-readable number if available,
+      // otherwise we store invoiceId so the service can fetch the PDF later.
+      invoiceNumber:          txn.invoiceNumber ?? txn.invoiceId ?? null,
+      invoicePdfUrl:          null, // fetched on-demand: paddle.invoices.getPdf(invoiceId)
+      hostedInvoiceUrl:       null, // Paddle has no hosted invoice URL
+      periodStart:            txn.billingPeriod?.startsAt ? toDate(txn.billingPeriod.startsAt) : null,
+      periodEnd:              txn.billingPeriod?.endsAt   ? toDate(txn.billingPeriod.endsAt)   : null,
+      dueDate:                null,
+      paidAt,
+      attemptCount:           txn.payments?.length ?? 0,
+      paymentMethodType,
+      cardLast4,
+      lineItems,
+      metadata:               customData,
+      raw,
+    };
   }
 }

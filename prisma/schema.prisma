@@ -141,18 +141,18 @@ model UsageRecord {
 }
 
 model BillingEvent {
-  id            String           @id @default(cuid())
-  workspaceId   String?
-  payerId       String?
-  stripeEventId String?          @unique
-  type          BillingEventType
-  payload       Json
-  processed     Boolean          @default(false)
-  error         String?
-  createdAt     DateTime         @default(now())
+  id              String           @id @default(cuid())
+  workspaceId     String?
+  payerId         String?
+  providerEventId String?          @unique   
+  type            BillingEventType
+  payload         Json
+  processed       Boolean          @default(false)
+  error           String?
+  createdAt       DateTime         @default(now())
 
   @@index([workspaceId])
-  @@index([stripeEventId])
+  @@index([providerEventId])             
   @@index([type])
   @@index([processed])
   @@index([createdAt])
