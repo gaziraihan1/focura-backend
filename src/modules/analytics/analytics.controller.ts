@@ -3,36 +3,48 @@ import { AuthRequest } from '../../middleware/auth.js';
 import { AnalyticsQuery } from './analytics.query.js';
 import { prisma } from '../../lib/prisma.js';
 
+class ForbiddenError extends Error {
+  constructor() {
+    super('FORBIDDEN');
+  }
+}
+class AppError extends Error {
+  public statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
 async function assertWorkspaceMember(workspaceId: string, userId: string) {
   const member = await prisma.workspaceMember.findFirst({
-    where: {
-      workspaceId,
-      userId,
-    },
+    where: { workspaceId, userId },
   });
 
   if (!member) {
-    throw new Error('ACCESS_DENIED');
+    throw new AppError('Forbidden', 403);
   }
 
   return member;
 }
+
 export class AnalyticsController {
   private static handleAnalyticsError(error: any, res: Response) {
-    console.error('Analytics error:', error);
+  console.error('Analytics error:', error);
 
-    if (error.message.includes('access') || error.message.includes('restricted')) {
-      return res.status(403).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    return res.status(500).json({
+  if (error instanceof AppError) {
+    return res.status(error.statusCode).json({
       success: false,
-      message: 'Failed to fetch analytics data',
+      message: error.message,
     });
   }
+
+  return res.status(500).json({
+    success: false,
+    message: 'Failed to fetch analytics data',
+  });
+}
 
   static async getOverview(req: AuthRequest, res: Response) {
   try {
@@ -44,7 +56,8 @@ export class AnalyticsController {
     }
 
     const { workspaceId } = req.params;
-        await assertWorkspaceMember(workspaceId, req.user.id);
+
+    await assertWorkspaceMember(workspaceId, req.user.id);
 
     const results = await Promise.allSettled([
       AnalyticsQuery.getExecutiveKPIs(workspaceId, req.user.id),
@@ -54,15 +67,8 @@ export class AnalyticsController {
       AnalyticsQuery.getDeadlineRiskAnalysis(workspaceId, req.user.id),
     ]);
 
-    const [
-      kpis,
-      taskStatus,
-      projectStatus,
-      tasksByPriority,
-      deadlineRisk,
-    ] = results.map((r) =>
-      r.status === 'fulfilled' ? r.value : null
-    );
+    const [kpis, taskStatus, projectStatus, tasksByPriority, deadlineRisk] =
+      results.map(r => (r.status === 'fulfilled' ? r.value : null));
 
     return res.json({
       success: true,
