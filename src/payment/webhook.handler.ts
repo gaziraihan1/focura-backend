@@ -99,7 +99,7 @@ export async function webhookHandler(
   // SWITCH TO PADDLE: no change needed — Paddle event IDs (evt_xxx) go here.
   // TODO (optional): rename column to providerEventId in a future migration.
   const existing = await prisma.billingEvent.findUnique({
-    where: { stripeEventId: event.providerEventId },
+where: { providerEventId: event.providerEventId },
   });
 
   if (existing?.processed) {
@@ -109,9 +109,9 @@ export async function webhookHandler(
   }
 
   const billingEvent = await prisma.billingEvent.upsert({
-    where: { stripeEventId: event.providerEventId },
+where: { providerEventId: event.providerEventId },
     create: {
-      stripeEventId: event.providerEventId,
+providerEventId: event.providerEventId,
       type:          mapEventType(event.type),
       payload:       event.raw as any,
       processed:     false,
