@@ -1185,3 +1185,47 @@ enum VoteType {
   UP
   DOWN
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD THIS BLOCK to the bottom of your existing schema.prisma
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ContactMessage {
+  id          String               @id @default(cuid())
+  name        String
+  email       String
+  subject     String
+  category    ContactCategory
+  message     String
+  ipAddress   String?
+  userAgent   String?
+  status      ContactMessageStatus @default(UNREAD)
+  repliedAt   DateTime?
+  repliedById String?
+  adminNote   String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+}
+
+enum ContactCategory {
+  GENERAL
+  BILLING
+  TECHNICAL
+  FEATURE_REQUEST
+  PARTNERSHIP
+  SECURITY
+  OTHER
+}
+
+enum ContactMessageStatus {
+  UNREAD
+  READ
+  IN_PROGRESS
+  REPLIED
+  CLOSED
+}

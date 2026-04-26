@@ -36,6 +36,8 @@ import webhookRouter from './payment/webhook.router.js';
 import { billingRouter } from './modules/billing/index.js';
 import { featureRouter } from './modules/feature/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { contactRouter } from './modules/contact/index.js';
+
 import { authenticate } from './middleware/auth.js';
 import {
   projectAnnouncementRouter,
@@ -144,6 +146,7 @@ app.use('/api/workspace-usage', authenticate, workspaceUsageRouter);
 app.use('/api/meetings', authenticate, meetingRoutes);
 app.use('/api/features', authenticate, featureRouter);
 app.use('/api/admin', authenticate, adminRouter);
+app.use('/api/contact', contactRouter);
 
 // ── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {

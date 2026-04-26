@@ -29,6 +29,7 @@
     "@ngrok/ngrok": "^1.7.0",
     "@paddle/paddle-node-sdk": "^3.8.0",
     "@prisma/client": "^5.22.0",
+    "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.36.2",
     "argon2": "^0.44.0",
     "cloudinary": "^2.8.0",
