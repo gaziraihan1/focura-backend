@@ -34,23 +34,37 @@ import type {
 
 import {
   getPaddle,
-  getPaddleWebhookSecret,
   PADDLE_PRICE_IDS,
   PADDLE_PRICE_TO_PLAN,
+  getPaddleWebhookSecret,
 } from '../../../modules/billing/config/paddle.js';
 
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Lazy instances (important for tests)
+// ---------------------------------------------------------------------------
+
+const paddle = getPaddle();
+
+// ---------------------------------------------------------------------------
 // Types
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
-type PaddleItem = {
-  priceId: string;
-  quantity?: number;
-};
+type AnySubEventData =
+  | SubscriptionCreatedEvent['data']
+  | SubscriptionUpdatedEvent['data']
+  | SubscriptionCanceledEvent['data']
+  | SubscriptionTrialingEvent['data'];
 
-// ─────────────────────────────────────────────────────────────
+type AnyTxnEventData =
+  | TransactionCompletedEvent['data']
+  | TransactionPaymentFailedEvent['data']
+  | TransactionCreatedEvent['data']
+  | TransactionUpdatedEvent['data']
+  | TransactionBilledEvent['data'];
+
+// ---------------------------------------------------------------------------
 // Status maps
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
 function mapSubStatus(status: string): NormalisedSubStatus {
   const map: Record<string, NormalisedSubStatus> = {
@@ -80,7 +94,9 @@ function mapBillingCycle(interval?: string): BillingCycle {
   return interval === 'year' ? 'YEARLY' : 'MONTHLY';
 }
 
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Price resolver
+// ---------------------------------------------------------------------------
 
 function resolvePriceId(planName: string, billingCycle: BillingCycle): string {
   const prices = PADDLE_PRICE_IDS[planName];
@@ -93,11 +109,17 @@ function resolvePriceId(planName: string, billingCycle: BillingCycle): string {
     billingCycle === 'YEARLY' ? prices.yearly : prices.monthly;
 
   if (!priceId) {
-    throw new Error(`[PaddleProvider] Missing price ID for ${planName}`);
+    throw new Error(
+      `[PaddleProvider] Missing price for ${planName}_${billingCycle}`
+    );
   }
 
   return priceId;
 }
+
+// ---------------------------------------------------------------------------
+// Utils
+// ---------------------------------------------------------------------------
 
 function toDate(value?: string | null, fallback = new Date()): Date {
   if (!value) return fallback;
@@ -105,16 +127,54 @@ function toDate(value?: string | null, fallback = new Date()): Date {
   return isNaN(d.getTime()) ? fallback : d;
 }
 
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Subscription mapper
+// ---------------------------------------------------------------------------
+
+function buildSubFields(
+  sub: AnySubEventData,
+  eventId: string,
+  raw: unknown,
+): Omit<NormalisedSubscriptionEvent, 'type'> {
+  const firstItem = sub.items?.[0];
+  const priceId = firstItem?.price?.id ?? '';
+  const planMeta = PADDLE_PRICE_TO_PLAN.get(priceId);
+  const interval = firstItem?.price?.billingCycle?.interval;
+
+  const customData = (sub.customData ?? {}) as Record<string, string>;
+
+  const trialEnd =
+    sub.status === 'trialing' && sub.nextBilledAt
+      ? toDate(sub.nextBilledAt)
+      : null;
+
+  return {
+    providerEventId: eventId,
+    providerSubscriptionId: sub.id,
+    providerCustomerId: sub.customerId,
+    providerPriceId: priceId,
+    planName: planMeta?.planName ?? customData.planName ?? 'PRO',
+    status: mapSubStatus(sub.status),
+    billingCycle: mapBillingCycle(interval),
+    currentPeriodStart: toDate(sub.currentBillingPeriod?.startsAt),
+    currentPeriodEnd: toDate(sub.currentBillingPeriod?.endsAt),
+    cancelAtPeriodEnd: sub.scheduledChange?.action === 'cancel',
+    canceledAt: sub.canceledAt ? toDate(sub.canceledAt) : null,
+    trialStart: null,
+    trialEnd,
+    metadata: customData,
+    raw,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
 
 export class PaddleProvider implements IPaymentProvider {
   readonly name = 'paddle';
 
-  // ── Customer ───────────────────────────────────────────────
-
   async createCustomer(params: CreateCustomerParams): Promise<CustomerResult> {
-    const paddle = getPaddle();
-
     const customer = await paddle.customers.create({
       email: params.email,
       name: params.name,
@@ -124,17 +184,10 @@ export class PaddleProvider implements IPaymentProvider {
     return { providerCustomerId: customer.id };
   }
 
-  // ── Checkout ───────────────────────────────────────────────
-
   async createCheckoutSession(
-    params: CreateCheckoutParams
+    params: CreateCheckoutParams,
   ): Promise<CheckoutResult> {
-    const paddle = getPaddle();
-
-    const priceId = resolvePriceId(
-      params.planName,
-      params.billingCycle
-    );
+    const priceId = resolvePriceId(params.planName, params.billingCycle);
 
     const txn = await paddle.transactions.create({
       customerId: params.providerCustomerId,
@@ -149,57 +202,45 @@ export class PaddleProvider implements IPaymentProvider {
     });
 
     const url = txn.checkout?.url;
-    if (!url) throw new Error('Missing checkout URL');
+    if (!url) throw new Error('[PaddleProvider] No checkout URL');
 
     return { url };
   }
 
-  // ── Portal ────────────────────────────────────────────────
-
   async createPortalSession(
-    params: CreatePortalParams
+    params: CreatePortalParams,
   ): Promise<PortalResult> {
-    const paddle = getPaddle();
-
     const session = await paddle.customerPortalSessions.create(
       params.providerCustomerId,
-      []
+      [],
     );
 
     const url = session.urls?.general?.overview;
-    if (!url) throw new Error('Missing portal URL');
+    if (!url) throw new Error('[PaddleProvider] No portal URL');
 
     return { url };
   }
 
-  // ── Change Plan ───────────────────────────────────────────
-
   async changePlan(params: ChangePlanParams): Promise<void> {
-    const paddle = getPaddle();
-
     const sub = await paddle.subscriptions.get(
-      params.providerSubscriptionId
+      params.providerSubscriptionId,
     );
 
-    const updatedItems: PaddleItem[] = (sub.items ?? []).map(
-      (item: { quantity?: number }) => ({
-        priceId: params.newProviderPriceId,
-        quantity: item.quantity ?? 1,
-      })
-    );
+    const updatedItems = (sub.items ?? []).map((item) => ({
+      priceId: params.newProviderPriceId,
+      quantity: item.quantity ?? 1,
+    })) as { priceId: string; quantity: number }[];
 
     await paddle.subscriptions.update(params.providerSubscriptionId, {
       items: updatedItems,
+      prorationBillingMode: params.isUpgrade
+        ? 'prorated_immediately'
+        : 'prorated_next_billing_period',
+      customData: params.metadata,
     });
   }
 
-  // ── Cancel ────────────────────────────────────────────────
-
-  async cancelSubscription(
-    params: CancelSubscriptionParams
-  ): Promise<void> {
-    const paddle = getPaddle();
-
+  async cancelSubscription(params: CancelSubscriptionParams): Promise<void> {
     await paddle.subscriptions.cancel(params.providerSubscriptionId, {
       effectiveFrom: params.immediately
         ? 'immediately'
@@ -207,79 +248,134 @@ export class PaddleProvider implements IPaymentProvider {
     });
   }
 
-  // ── Reactivate ────────────────────────────────────────────
-
   async reactivateSubscription(
-    params: ReactivateSubscriptionParams
+    params: ReactivateSubscriptionParams,
   ): Promise<void> {
-    const paddle = getPaddle();
-
     await paddle.subscriptions.update(params.providerSubscriptionId, {
       scheduledChange: null,
     });
   }
 
-  // ── Webhook ───────────────────────────────────────────────
-
   async verifyAndParseWebhook(
     rawBody: Buffer,
-    headers: Record<string, string | string[] | undefined>
+    headers: Record<string, string | string[] | undefined>,
   ): Promise<
     NormalisedSubscriptionEvent | NormalisedInvoiceEvent | null
   > {
-    const paddle = getPaddle();
+    const sig = headers['paddle-signature'];
+    const sigStr = Array.isArray(sig) ? sig[0] : sig;
+
+    if (!sigStr) {
+      throw new Error('[PaddleProvider] Missing signature');
+    }
+
     const secret = getPaddleWebhookSecret();
 
-    const sig = headers['paddle-signature'];
-    const sigStr = Array.isArray(sig) ? sig[0] : sig ?? '';
-
-    if (!sigStr) throw new Error('Missing signature');
-
     const event = await paddle.webhooks.unmarshal(
-      rawBody.toString(),
+      rawBody.toString('utf-8'),
       secret,
-      sigStr
+      sigStr,
     );
 
-    if (!event) return null;
+    if (!event) throw new Error('[PaddleProvider] Invalid webhook');
 
     const eventId = event.eventId;
 
     switch (event.eventType) {
-      case EventName.SubscriptionCreated: {
-        const data = (event as SubscriptionCreatedEvent).data;
-
+      case EventName.SubscriptionCreated:
         return {
           type: 'SUBSCRIPTION_CREATED',
-          providerEventId: eventId,
-          providerSubscriptionId: data.id,
-          providerCustomerId: data.customerId,
-          providerPriceId: data.items?.[0]?.price?.id ?? '',
-          planName:
-            PADDLE_PRICE_TO_PLAN.get(
-              data.items?.[0]?.price?.id ?? ''
-            )?.planName ?? 'PRO',
-          status: mapSubStatus(data.status),
-          billingCycle: mapBillingCycle(
-            data.items?.[0]?.price?.billingCycle?.interval
+          ...buildSubFields(
+            (event as SubscriptionCreatedEvent).data,
+            eventId,
+            event,
           ),
-          currentPeriodStart: toDate(
-            data.currentBillingPeriod?.startsAt
-          ),
-          currentPeriodEnd: toDate(
-            data.currentBillingPeriod?.endsAt
-          ),
-          cancelAtPeriodEnd: false,
-          canceledAt: null,
-          trialStart: null,
-          trialEnd: null,
-          metadata: data.customData ?? {},
-          raw: event,
         };
-      }
+
+      case EventName.SubscriptionUpdated:
+        return {
+          type: 'SUBSCRIPTION_UPDATED',
+          ...buildSubFields(
+            (event as SubscriptionUpdatedEvent).data,
+            eventId,
+            event,
+          ),
+        };
+
+      case EventName.SubscriptionCanceled:
+        return {
+          type: 'SUBSCRIPTION_CANCELED',
+          ...buildSubFields(
+            (event as SubscriptionCanceledEvent).data,
+            eventId,
+            event,
+          ),
+        };
+
+      case EventName.SubscriptionTrialing:
+        return {
+          type: 'SUBSCRIPTION_TRIAL_ENDING',
+          ...buildSubFields(
+            (event as SubscriptionTrialingEvent).data,
+            eventId,
+            event,
+          ),
+        };
 
       default:
         return null;
     }
+  }
+
+  private normaliseTxnAsInvoice(
+    type: NormalisedInvoiceEvent['type'],
+    txn: AnyTxnEventData,
+    eventId: string,
+    raw: unknown,
+  ): NormalisedInvoiceEvent {
+    const customData = (txn.customData ?? {}) as Record<string, string>;
+    const totals = txn.details?.totals;
+
+    const amountDue = Number(totals?.total ?? 0);
+
+    const lastPayment =
+      txn.payments?.[txn.payments.length - 1];
+
+    const amountPaid = lastPayment?.amount
+      ? Number(lastPayment.amount)
+      : 0;
+
+    const amountRemaining = Math.max(0, amountDue - amountPaid);
+
+    return {
+      type,
+      providerEventId: eventId,
+      providerInvoiceId: txn.id,
+      providerCustomerId: txn.customerId ?? null,
+      providerSubscriptionId: txn.subscriptionId ?? null,
+      providerPaymentId: lastPayment?.paymentAttemptId ?? null,
+      amountDue,
+      amountPaid,
+      amountRemaining,
+      currency: (txn.currencyCode ?? 'USD').toLowerCase(),
+      status: mapInvoiceStatus(txn.status),
+      invoiceNumber: txn.invoiceNumber ?? txn.invoiceId ?? null,
+      invoicePdfUrl: null,
+      hostedInvoiceUrl: null,
+      periodStart: txn.billingPeriod?.startsAt
+        ? toDate(txn.billingPeriod.startsAt)
+        : null,
+      periodEnd: txn.billingPeriod?.endsAt
+        ? toDate(txn.billingPeriod.endsAt)
+        : null,
+      dueDate: null,
+      paidAt: null,
+      attemptCount: txn.payments?.length ?? 0,
+      paymentMethodType: null,
+      cardLast4: null,
+      lineItems: [],
+      metadata: customData,
+      raw,
+    };
   }
 }
