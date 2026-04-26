@@ -2,15 +2,30 @@
 import { Environment, Paddle } from '@paddle/paddle-node-sdk';
 
 
+export type BillingCycle = 'MONTHLY' | 'YEARLY';
+
+export interface PaddlePriceConfig {
+  monthly: string;
+  yearly: string;
+}
+
+export interface PaddlePlanMapping {
+  planName: string;
+  cycle: BillingCycle;
+}
+
+
 let paddleInstance: Paddle | null = null;
 
 export function getPaddle(): Paddle {
   if (!paddleInstance) {
-    if (!process.env.PADDLE_API_KEY) {
+    const apiKey = process.env.PADDLE_API_KEY;
+
+    if (!apiKey) {
       throw new Error('PADDLE_API_KEY is not defined');
     }
 
-    paddleInstance = new Paddle(process.env.PADDLE_API_KEY, {
+    paddleInstance = new Paddle(apiKey, {
       environment:
         process.env.NODE_ENV === 'production'
           ? Environment.production
@@ -22,27 +37,18 @@ export function getPaddle(): Paddle {
 }
 
 
-export interface PaddlePriceConfig {
-  monthly: string;
-  yearly: string;
-}
-
 export const PADDLE_PRICE_IDS: Record<string, PaddlePriceConfig> = {
   PRO: {
-    monthly: process.env.PADDLE_PRICE_PRO_MONTHLY || '',
-    yearly: process.env.PADDLE_PRICE_PRO_YEARLY || '',
+    monthly: process.env.PADDLE_PRICE_PRO_MONTHLY ?? '',
+    yearly: process.env.PADDLE_PRICE_PRO_YEARLY ?? '',
   },
   BUSINESS: {
-    monthly: process.env.PADDLE_PRICE_BUSINESS_MONTHLY || '',
-    yearly: process.env.PADDLE_PRICE_BUSINESS_YEARLY || '',
+    monthly: process.env.PADDLE_PRICE_BUSINESS_MONTHLY ?? '',
+    yearly: process.env.PADDLE_PRICE_BUSINESS_YEARLY ?? '',
   },
 };
 
-
-export const PADDLE_PRICE_TO_PLAN = new Map<
-  string,
-  { planName: string; cycle: 'MONTHLY' | 'YEARLY' }
->();
+export const PADDLE_PRICE_TO_PLAN: Map<string, PaddlePlanMapping> = new Map();
 
 for (const [planName, prices] of Object.entries(PADDLE_PRICE_IDS)) {
   if (prices.monthly) {
@@ -61,10 +67,13 @@ for (const [planName, prices] of Object.entries(PADDLE_PRICE_IDS)) {
 }
 
 
+
 export function getPaddleWebhookSecret(): string {
-  if (!process.env.PADDLE_WEBHOOK_SECRET) {
+  const secret = process.env.PADDLE_WEBHOOK_SECRET;
+
+  if (!secret) {
     throw new Error('PADDLE_WEBHOOK_SECRET is not defined');
   }
 
-  return process.env.PADDLE_WEBHOOK_SECRET;
+  return secret;
 }
