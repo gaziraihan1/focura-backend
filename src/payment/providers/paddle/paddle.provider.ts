@@ -39,11 +39,10 @@ import {
   getPaddleWebhookSecret,
 } from '../../../modules/billing/config/paddle.js';
 
-// ---------------------------------------------------------------------------
-// Lazy instances (important for tests)
-// ---------------------------------------------------------------------------
-
-const paddle = getPaddle();
+// ✅ LAZY CLIENT (critical fix)
+function getClient() {
+  return getPaddle();
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -175,7 +174,7 @@ export class PaddleProvider implements IPaymentProvider {
   readonly name = 'paddle';
 
   async createCustomer(params: CreateCustomerParams): Promise<CustomerResult> {
-    const customer = await paddle.customers.create({
+    const customer = await getClient().customers.create({
       email: params.email,
       name: params.name,
       customData: params.metadata,
@@ -189,7 +188,7 @@ export class PaddleProvider implements IPaymentProvider {
   ): Promise<CheckoutResult> {
     const priceId = resolvePriceId(params.planName, params.billingCycle);
 
-    const txn = await paddle.transactions.create({
+    const txn = await getClient().transactions.create({
       customerId: params.providerCustomerId,
       items: [{ priceId, quantity: 1 }],
       checkout: { url: params.successUrl },
@@ -210,7 +209,7 @@ export class PaddleProvider implements IPaymentProvider {
   async createPortalSession(
     params: CreatePortalParams,
   ): Promise<PortalResult> {
-    const session = await paddle.customerPortalSessions.create(
+    const session = await getClient().customerPortalSessions.create(
       params.providerCustomerId,
       [],
     );
@@ -222,7 +221,7 @@ export class PaddleProvider implements IPaymentProvider {
   }
 
   async changePlan(params: ChangePlanParams): Promise<void> {
-    const sub = await paddle.subscriptions.get(
+    const sub = await getClient().subscriptions.get(
       params.providerSubscriptionId,
     );
 
@@ -231,7 +230,7 @@ export class PaddleProvider implements IPaymentProvider {
       quantity: item.quantity ?? 1,
     })) as { priceId: string; quantity: number }[];
 
-    await paddle.subscriptions.update(params.providerSubscriptionId, {
+    await getClient().subscriptions.update(params.providerSubscriptionId, {
       items: updatedItems,
       prorationBillingMode: params.isUpgrade
         ? 'prorated_immediately'
@@ -241,7 +240,7 @@ export class PaddleProvider implements IPaymentProvider {
   }
 
   async cancelSubscription(params: CancelSubscriptionParams): Promise<void> {
-    await paddle.subscriptions.cancel(params.providerSubscriptionId, {
+    await getClient().subscriptions.cancel(params.providerSubscriptionId, {
       effectiveFrom: params.immediately
         ? 'immediately'
         : 'next_billing_period',
@@ -251,7 +250,7 @@ export class PaddleProvider implements IPaymentProvider {
   async reactivateSubscription(
     params: ReactivateSubscriptionParams,
   ): Promise<void> {
-    await paddle.subscriptions.update(params.providerSubscriptionId, {
+    await getClient().subscriptions.update(params.providerSubscriptionId, {
       scheduledChange: null,
     });
   }
@@ -271,7 +270,7 @@ export class PaddleProvider implements IPaymentProvider {
 
     const secret = getPaddleWebhookSecret();
 
-    const event = await paddle.webhooks.unmarshal(
+    const event = await getClient().webhooks.unmarshal(
       rawBody.toString('utf-8'),
       secret,
       sigStr,
