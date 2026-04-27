@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { isFocuraAdmin } from '../../config/admin.config.js';
 import { AuthRequest } from '../../middleware/auth.js';
 
@@ -7,7 +7,7 @@ export function requireAdminId(
   res: Response,
   next: NextFunction
 ): void {
-  const userId: string | undefined = (req as any).user?.id;
+  const userId: string | undefined = req.user?.id;
 
   if (!userId || !isFocuraAdmin(userId)) {
     res.status(403).json({

@@ -26,6 +26,7 @@ import webhookRouter from './payment/webhook.router.js';
 import { billingRouter } from './modules/billing/index.js';
 import { featureRouter } from './modules/feature/index.js';
 import { contactRouter } from './modules/contact/index.js';
+import { jobRouter } from './modules/job/index.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticate } from './middleware/auth.js';
@@ -166,6 +167,7 @@ app.use('/api/meetings', authenticate, meetingRoutes)
 app.use('/api/features', authenticate, featureRouter)
 app.use('/api/admin', authenticate, adminRouter)
 app.use('/api/contact', contactRouter);
+app.use('/api/jobs', jobRouter);
 
 app.use((req: Request, res: Response) => {
   console.warn(`404 - Route not found: ${req.method} ${req.path}`);

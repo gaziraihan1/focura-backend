@@ -144,7 +144,7 @@ model BillingEvent {
   id              String           @id @default(cuid())
   workspaceId     String?
   payerId         String?
-  providerEventId String?          @unique   
+  providerEventId String?          @unique
   type            BillingEventType
   payload         Json
   processed       Boolean          @default(false)
@@ -152,7 +152,7 @@ model BillingEvent {
   createdAt       DateTime         @default(now())
 
   @@index([workspaceId])
-  @@index([providerEventId])             
+  @@index([providerEventId])
   @@index([type])
   @@index([processed])
   @@index([createdAt])
@@ -1227,5 +1227,87 @@ enum ContactMessageStatus {
   READ
   IN_PROGRESS
   REPLIED
+  CLOSED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD this block to the bottom of your existing schema.prisma
+// then run: npx prisma migrate dev --name add_job_posting
+// ─────────────────────────────────────────────────────────────────────────────
+
+model JobPosting {
+  id               String          @id @default(cuid())
+  title            String
+  slug             String          @unique
+  department       JobDepartment
+  location         String // e.g. "Dhaka, Bangladesh" or "Remote"
+  locationType     JobLocationType @default(REMOTE)
+  type             JobType         @default(FULL_TIME)
+  experienceLevel  JobExperience   @default(MID)
+  salaryMin        Int? // in USD cents, nullable = undisclosed
+  salaryMax        Int?
+  salaryCurrency   String          @default("USD")
+  description      String // markdown / rich text
+  requirements     String // markdown list
+  niceToHave       String? // markdown list, optional
+  benefits         String? // markdown list, optional
+  status           JobStatus       @default(DRAFT)
+  postedById       String // cuid of the admin who posted
+  closingDate      DateTime?
+  applicationUrl   String? // external ATS link, optional
+  applicationEmail String? // defaults to focurabusiness@gmail.com
+  totalApplicants  Int             @default(0) // bumped by application webhook / manual
+  isPinned         Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  publishedAt      DateTime?
+
+  @@index([status])
+  @@index([department])
+  @@index([locationType])
+  @@index([type])
+  @@index([isPinned])
+  @@index([createdAt])
+}
+
+enum JobDepartment {
+  ENGINEERING
+  DESIGN
+  PRODUCT
+  MARKETING
+  SALES
+  CUSTOMER_SUCCESS
+  OPERATIONS
+  FINANCE
+  HR
+  OTHER
+}
+
+enum JobLocationType {
+  REMOTE
+  ONSITE
+  HYBRID
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  FREELANCE
+}
+
+enum JobExperience {
+  ENTRY
+  MID
+  SENIOR
+  LEAD
+  EXECUTIVE
+}
+
+enum JobStatus {
+  DRAFT
+  OPEN
+  PAUSED
   CLOSED
 }

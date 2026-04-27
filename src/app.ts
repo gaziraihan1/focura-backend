@@ -37,6 +37,7 @@ import { billingRouter } from './modules/billing/index.js';
 import { featureRouter } from './modules/feature/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { contactRouter } from './modules/contact/index.js';
+import { jobRouter } from './modules/job/index.js';
 
 import { authenticate } from './middleware/auth.js';
 import {
@@ -147,6 +148,7 @@ app.use('/api/meetings', authenticate, meetingRoutes);
 app.use('/api/features', authenticate, featureRouter);
 app.use('/api/admin', authenticate, adminRouter);
 app.use('/api/contact', contactRouter);
+app.use('/api/jobs', jobRouter);
 
 // ── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req: Request, res: Response) => {
