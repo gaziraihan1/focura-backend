@@ -1,0 +1,1 @@
+export {default as templatesRouter} from "./templates.routes.js";

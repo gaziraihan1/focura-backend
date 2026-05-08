@@ -1,0 +1,35 @@
+
+import { prisma } from '../../lib/prisma.js';
+import { taskWorkspaceInclude } from './dailyTask.selects.js';
+
+export const DailyTaskAccess = {
+  async findAccessibleTask(userId: string, taskId: string) {
+    return prisma.task.findFirst({
+      where: {
+        id: taskId,
+        OR: [
+          { createdById: userId },
+          { assignees: { some: { userId } } },
+          {
+            project: {
+              workspace: {
+                members: { some: { userId } },
+              },
+            },
+          },
+        ],
+      },
+      include: taskWorkspaceInclude,
+    });
+  },
+
+  async assertTaskAccess(userId: string, taskId: string) {
+    const task = await this.findAccessibleTask(userId, taskId);
+
+    if (!task) {
+      throw new Error('Task not found or you do not have access to this task');
+    }
+
+    return task;
+  },
+};

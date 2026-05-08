@@ -1,0 +1,273 @@
+import { Response } from 'express';
+import { AuthRequest } from '../../middleware/auth.js';
+import { AnalyticsQuery } from './analytics.query.js';
+import { prisma } from '../../lib/prisma.js';
+
+class ForbiddenError extends Error {
+  constructor() {
+    super('FORBIDDEN');
+  }
+}
+class AppError extends Error {
+  public statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+async function assertWorkspaceMember(workspaceId: string, userId: string) {
+  const member = await prisma.workspaceMember.findFirst({
+    where: { workspaceId, userId },
+  });
+
+  if (!member) {
+    throw new AppError('Forbidden', 403);
+  }
+
+  return member;
+}
+
+async function assertAnalyticsAccess(workspaceId: string, userId: string) {
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { plan: true },
+  });
+
+  if (!workspace) {
+    throw new AppError('Workspace not found', 404);
+  }
+
+  if (workspace.plan === 'FREE') {
+    throw new AppError('Upgrade workspace plan to access analytics', 403);
+  }
+
+  await assertWorkspaceMember(workspaceId, userId);
+}
+export class AnalyticsController {
+  private static handleAnalyticsError(error: any, res: Response) {
+  console.error('Analytics error:', error);
+
+  if (error instanceof AppError) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: 'Failed to fetch analytics data',
+  });
+}
+
+  static async getOverview(req: AuthRequest, res: Response) {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+    
+    const { workspaceId } = req.params;
+    const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { plan: true },
+  });
+  if(workspace?.plan === 'FREE') {
+    throw new AppError('Upgrade workspace plan to access analytics', 403);
+  }
+
+    await assertWorkspaceMember(workspaceId, req.user.id);
+
+    const results = await Promise.allSettled([
+      AnalyticsQuery.getExecutiveKPIs(workspaceId, req.user.id),
+      AnalyticsQuery.getTaskStatusDistribution(workspaceId, req.user.id),
+      AnalyticsQuery.getProjectStatusDistribution(workspaceId, req.user.id),
+      AnalyticsQuery.getTasksByPriority(workspaceId, req.user.id),
+      AnalyticsQuery.getDeadlineRiskAnalysis(workspaceId, req.user.id),
+    ]);
+
+    const [kpis, taskStatus, projectStatus, tasksByPriority, deadlineRisk] =
+      results.map(r => (r.status === 'fulfilled' ? r.value : null));
+
+    return res.json({
+      success: true,
+      data: {
+        kpis: kpis ?? {},
+        taskStatus: taskStatus ?? [],
+        projectStatus: projectStatus ?? [],
+        tasksByPriority: tasksByPriority ?? [],
+        deadlineRisk: deadlineRisk ?? {},
+      },
+    });
+  } catch (error: any) {
+    return AnalyticsController.handleAnalyticsError(error, res);
+  }
+}
+
+  static async getTaskTrends(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const { workspaceId } = req.params;
+          await assertAnalyticsAccess(workspaceId, req.user.id); // ✅ add this
+
+      const { days = '30' } = req.query;
+      const daysNum = parseInt(days as string);
+
+      const [completionTrend, overdueTrend] = await Promise.all([
+        AnalyticsQuery.getTaskCompletionTrend(workspaceId, req.user.id, daysNum),
+        AnalyticsQuery.getOverdueTrend(workspaceId, req.user.id, daysNum),
+      ]);
+
+      return res.json({
+        success: true,
+        data: {
+          completionTrend,
+          overdueTrend,
+        },
+      });
+    } catch (error: any) {
+      return AnalyticsController.handleAnalyticsError(error, res);
+    }
+  }
+
+  static async getProjectHealth(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const { workspaceId } = req.params;
+          await assertAnalyticsAccess(workspaceId, req.user.id); // ✅ add this
+
+      const metrics = await AnalyticsQuery.getProjectHealthMetrics(workspaceId, req.user.id);
+
+      return res.json({
+        success: true,
+        data: metrics,
+      });
+    } catch (error: any) {
+      return AnalyticsController.handleAnalyticsError(error, res);
+    }
+  }
+
+  static async getMemberContribution(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const { workspaceId } = req.params;
+          await assertAnalyticsAccess(workspaceId, req.user.id); // ✅ add this
+
+      const contributions = await AnalyticsQuery.getMemberContribution(workspaceId, req.user.id);
+
+      return res.json({
+        success: true,
+        data: contributions,
+      });
+    } catch (error: any) {
+      return AnalyticsController.handleAnalyticsError(error, res);
+    }
+  }
+
+  static async getTimeSummary(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const { workspaceId } = req.params;
+          await assertAnalyticsAccess(workspaceId, req.user.id); // ✅ add this
+
+      const { days = '7' } = req.query;
+      const daysNum = parseInt(days as string);
+
+      const summary = await AnalyticsQuery.getTimeTrackingSummary(
+        workspaceId,
+        req.user.id,
+        daysNum
+      );
+
+      return res.json({
+        success: true,
+        data: summary,
+      });
+    } catch (error: any) {
+      return AnalyticsController.handleAnalyticsError(error, res);
+    }
+  }
+
+  static async getActivityTrends(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const { workspaceId } = req.params;
+          await assertAnalyticsAccess(workspaceId, req.user.id); // ✅ add this
+
+      const { days = '30' } = req.query;
+      const daysNum = parseInt(days as string);
+
+      const [volumeTrend, mostActiveDay] = await Promise.all([
+        AnalyticsQuery.getActivityVolumeTrend(workspaceId, req.user.id, daysNum),
+        AnalyticsQuery.getMostActiveDay(workspaceId, req.user.id),
+      ]);
+
+      return res.json({
+        success: true,
+        data: {
+          volumeTrend,
+          mostActiveDay,
+        },
+      });
+    } catch (error: any) {
+      return AnalyticsController.handleAnalyticsError(error, res);
+    }
+  }
+
+  static async getWorkload(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({
+          success: false,
+          message: 'Unauthorized',
+        });
+      }
+
+      const { workspaceId } = req.params;
+          await assertAnalyticsAccess(workspaceId, req.user.id); // ✅ add this
+
+      const tasksPerMember = await AnalyticsQuery.getTasksPerMember(workspaceId, req.user.id);
+
+      return res.json({
+        success: true,
+        data: tasksPerMember,
+      });
+    } catch (error: any) {
+      return AnalyticsController.handleAnalyticsError(error, res);
+    }
+  }
+}
